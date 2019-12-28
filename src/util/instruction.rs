@@ -12,53 +12,54 @@ pub struct Instruction {
 impl Instruction {
     fn rs1(&self) -> Bit {
         match self.encode_type {
-            RType | IType | SType | BType=> {
-                self.raw_code.truncate((19, 15))
-            }
+            EncodeType::RType |
+            EncodeType::IType |
+            EncodeType::SType |
+            EncodeType::BType => self.raw_code.truncate((19, 15)),
             tpe => panic!(make_panic_msg(tpe, "rs1"))
         }
     }
 
-
     fn rs2(&self) -> Bit {
         match self.encode_type {
-            RType | SType | BType => {
-                self.raw_code.truncate((24, 20))
-            }
+            EncodeType::RType |
+            EncodeType::SType |
+            EncodeType::BType => self.raw_code.truncate((24, 20)),
             tpe => panic!(make_panic_msg(tpe, "rs2"))
         }
     }
 
     fn rd(&self) -> Bit {
         match self.encode_type {
-            RType | IType | UType | JType => {
-                self.raw_code.truncate((11, 7))
-            }
+            EncodeType::RType |
+            EncodeType::IType |
+            EncodeType::UType |
+            EncodeType::JType => self.raw_code.truncate((11, 7)),
             tpe => panic!(make_panic_msg(tpe, "rd"))
         }
     }
 
     fn imm(&self) -> Bit {
         match self.encode_type {
-            RType => panic!(make_panic_msg(RType, "imm")),
-            IType => self.raw_code.truncate(31, 20),
-            SType => {
+            EncodeType::RType => panic!(make_panic_msg(EncodeType::RType, "imm")),
+            EncodeType::IType => self.raw_code.truncate(31, 20),
+            EncodeType::SType => {
                 let upper = self.raw_code.truncate((31, 25));
                 let lower = self.raw_code.truncate((11, 7));
 
                 upper.concat(&lower)
             }
-            BType => {
+            EncodeType::BType => {
                 let bit12 = self.raw_code.truncate(31);
                 let bit11 = self.raw_code.truncate(7);
                 let bit10_5 = self.raw_code.truncate((30, 25));
                 let bit4_1 = self.raw_code.truncate((11, 8));
 
             }
-            UType => {
+            EncodeType::UType => {
                 let bit31_12 = self.raw_code.truncate((31, 12));
             }
-            JType => {
+            EncodeType::JType => {
                 let bit20 = self.raw_code.truncate(31);
                 let bit19_12 = self.raw_code.truncate((19, 12));
                 let bit11 = self.raw_code.truncate(20);
@@ -69,16 +70,17 @@ impl Instruction {
 
     fn funct3(&self) -> Bit {
         match self.encode_type {
-            RType | IType | SType | BType => {
-                self.raw_code.truncate((14, 12))
-            }
+            EncodeType::RType |
+            EncodeType::IType |
+            EncodeType::SType |
+            EncodeType::BType => self.raw_code.truncate((14, 12)),
             tpe => panic!(make_panic_msg(tpe, "funct3")),
         }
     }
 
     fn funct7(&self) -> Bit {
         match self.encode_type {
-            RType => self.raw_code.truncate((31, 25)),
+            EncodeType::RType => self.raw_code.truncate((31, 25)),
             tpe => panic!(make_panic_msg(tpe, "funct7")),
         }
     }
@@ -98,6 +100,7 @@ enum EncodeType {
     JType,
 }
 
+#[derive(Clone, Copy, Debug, Display)]
 enum Opcode {
     LUI,
     AUIPC,
