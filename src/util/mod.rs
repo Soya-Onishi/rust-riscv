@@ -1,2 +1,1 @@
 mod instruction;
-mod bitwise;
