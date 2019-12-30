@@ -7,7 +7,7 @@ pub struct Status {
     _pc: Bit,
     _regs: Vec<Bit>,
     _memory: HashMap<usize, [u8; 2048]>,
-    _pc_queue_depth: usize,
+    _branch_delay_cycle: usize,
     _pc_queue: Vec<Option<Bit>>,
 }
 
@@ -55,18 +55,18 @@ impl Status {
         }
     }
 
-    fn push_queue(&mut self, address: Bit) {
-        let depth = self._pc_queue_depth;
+    pub fn push_queue(&mut self, address: Bit) {
+        let depth = self._branch_delay_cycle;
         self._pc_queue[depth - 1] = Some(address)
     }
 
-    fn pop_queue(&mut self, address: Bit) -> Option<Bit> {
-        let dest = self._pc_queue[0];
-        let remains = self._pc_queue[1..];
+    pub fn pop_queue(&mut self, address: Bit) -> Option<Bit> {
+        let queue = self._pc_queue.clone();
+        let (dest, remains) = queue.split_at(1);
         self._pc_queue = remains.to_vec();
         self._pc_queue.push(None);
 
-        dest
+        dest[0].clone()
     }
 }
 
