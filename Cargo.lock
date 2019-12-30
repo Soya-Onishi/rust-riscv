@@ -44,6 +44,7 @@ name = "rust-riscv"
 version = "0.1.0"
 dependencies = [
  "bitwise 0.1.0",
+ "num-bigint 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [metadata]
