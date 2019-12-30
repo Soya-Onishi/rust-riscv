@@ -14,6 +14,94 @@ pub struct Instruction {
 }
 
 impl Instruction {
+    fn new(inst: Bit) -> Instruction {
+        let opcode_bit = inst.truncate((6, 0)).as_u8();
+        let funct3_bit = inst.truncate((14, 12)).as_u8();
+        let funct7_bit = inst.truncate((31, 25)).as_u8();
+        let funct12_bit = inst.truncate((31, 20)).as_u32();
+
+        let (opcode, encode_type) = match opcode_bit {
+            0b0110111 => (Opcode::LUI, EncodeType::UType),
+            0b0010111 => (Opcode::AUIPC, EncodeType::UType),
+            0b1101111 => (Opcode::JAL, EncodeType::JType),
+            0b1100111 if funct3_bit == 0b000 => (Opcode::JALR, EncodeType::IType),
+            0b1100011 => {
+                let opcode = match funct3_bit {
+                    0b000 => Opcode::BEQ,
+                    0b001 => Opcode::BNE,
+                    0b100 => Opcode::BLT,
+                    0b101 => Opcode::BGE,
+                    0b110 => Opcode::BLTU,
+                    0b111 => Opcode::BGEU,
+                    _ => panic!("unexpected pattern match"),
+                };
+
+                (opcode, EncodeType::BType)
+            }
+            0b0000011 => {
+                let opcode = match funct3_bit {
+                    0b000 => Opcode::LB,
+                    0b001 => Opcode::LH,
+                    0b010 => Opcode::LW,
+                    0b100 => Opcode::LBU,
+                    0b101 => Opcode::LHU,
+                    _ => panic!("unexpected pattern match"),
+                };
+
+                (opcode, EncodeType::IType)
+            }
+            0b0100011 => {
+                let opcode = match funct3_bit {
+                    0b000 => Opcode::SB,
+                    0b001 => Opcode::SH,
+                    0b010 => Opcode::SW,
+                    _ => panic!("unexpected pattern match"),
+                };
+
+                (opcode, EncodeType::SType)
+            }
+            0b0010011 => {
+                let opcode = match funct3_bit {
+                    0b000 => Opcode::ADDI,
+                    0b010 => Opcode::SLTI,
+                    0b011 => Opcode::SLTIU,
+                    0b100 => Opcode::XORI,
+                    0b110 => Opcode::ORI,
+                    0b111 => Opcode::ANDI,
+                    0b001 if funct7_bit == 0b000_0000 => Opcode::SLLI,
+                    0b101 if funct7_bit == 0b000_0000 => Opcode::SRLI,
+                    0b101 if funct7_bit == 0b010_0000 => Opcode::SRAI,
+                    _ => panic!("unexpected pattern match"),
+                };
+
+                (opcode, EncodeType::IType)
+            }
+            0b0110011 => {
+                let opcode = match funct3_bit {
+                    0b000 if funct7_bit == 0b000_0000 => Opcode::ADD,
+                    0b000 if funct7_bit == 0b010_0000 => Opcode::SUB,
+                    0b001 if funct7_bit == 0b000_0000 => Opcode::SLL,
+                    0b010 if funct7_bit == 0b000_0000 => Opcode::SLT,
+                    0b011 if funct7_bit == 0b000_0000 => Opcode::SLTU,
+                    0b100 if funct7_bit == 0b000_0000 => Opcode::XOR,
+                    0b101 if funct7_bit == 0b000_0000 => Opcode::SRL,
+                    0b101 if funct7_bit == 0b000_0000 => Opcode::SRA,
+                    0b110 if funct7_bit == 0b000_0000 => Opcode::OR,
+                    0b111 if funct7_bit == 0b000_0000 => Opcode::AND,
+                    _ => panic!("unexpected pattern match"),
+                };
+
+                (opcode, EncodeType::RType)
+            }
+            0b0001111 if funct3_bit == 0b000 => (Opcode::FENCE, EncodeType::IType),
+            0b1110011 if funct12_bit == 0b0000_0000_0000 => (Opcode::ECALL, EncodeType::IType),
+            0b1110011 if funct12_bit == 0b0000_0000_0001 => (Opcode::EBREAK, EncodeType::IType),
+            _ => panic!("invalid instruction code"),
+        };
+
+        Instruction { raw_code: inst, opcode, encode_type }
+    }
+
     fn rs1(&self) -> Bit {
         match self.encode_type {
             EncodeType::RType |
@@ -162,10 +250,211 @@ impl Instruction {
     }
     fn bltu(&self, status: &mut Status) { self.branch(status, |a, b| a < b); }
     fn bgeu(&self, status: &mut Status) { self.branch(status, |a, b| a >= b); }
+
+    fn load(&self, status: &mut Status, byte_count: u32, use_sign_ext: bool) {
+        let base_addr = self.rs1() + self.imm();
+        let data = status.read_mem_value(&base_addr);
+        let data = (1..byte_count).fold(data, |attached, offset| {
+            let addr = base_addr.clone() + Bit::new(offset);
+            let attach_data = status.read_mem_value(&addr);
+            Bit::concat(vec![&attach_data, &attached])
+        });
+
+        let data =
+            if use_sign_ext {
+                data.sign_ext(32)
+            } else {
+                data.zero_ext(32)
+            };
+
+        status.write_reg_value(data, self.rd());
+    }
+
+    fn lb(&self, status: &mut Status) { self.load(status, 1, true); }
+    fn lh(&self, status: &mut Status) { self.load(status, 2, true); }
+    fn lw(&self, status: &mut Status) { self.load(status, 4, true); }
+    fn lbu(&self, status: &mut Status) { self.load(status, 1, false); }
+    fn lhu(&self, status: &mut Status) { self.load(status, 2, false); }
+
+    fn store(&self, status: &mut Status, byte_size: usize) {
+        let addr = self.rs1() + self.imm();
+        let data = status.read_reg_value(self.rs2());
+        let data = data.truncate((byte_size * 8 - 1, 0));
+
+        status.write_mem_value(data, &addr);
+    }
+
+    fn sb(&self, status: &mut Status) { self.store(status, 1); }
+    fn sh(&self, status: &mut Status) { self.store(status, 2); }
+    fn sw(&self, status: &mut Status) { self.store(status, 4); }
+
+    fn rs1_imm_ops(&self, status: &mut Status, f: impl Fn(Bit, Bit) -> Bit) {
+        let rs1_value = status.read_reg_value(self.rs1());
+        let imm_value = self.imm();
+        let result = f(rs1_value, imm_value);
+
+        status.write_reg_value(result, self.rd());
+    }
+
+    fn addi(&self, status: &mut Status) {
+        self.rs1_imm_ops(status, |rs1, imm| rs1 + imm);
+    }
+
+    fn slti(&self, status: &mut Status) {
+        self.rs1_imm_ops(status, |rs1, imm| {
+            let converter = convert_into_signed_value;
+            if converter(&rs1) < converter(&imm) { Bit::new(1)} else { Bit::new(0) }
+        });
+    }
+
+    fn sltiu(&self, status: &mut Status) {
+        self.rs1_imm_ops(status, |rs1, imm| {
+            if rs1 < imm { Bit::new(1) } else { Bit::new(0) }
+        });
+    }
+
+    fn xori(&self, status: &mut Status) {
+        self.rs1_imm_ops(status, |rs1, imm| { rs1 ^ imm} );
+    }
+
+    fn ori(&self, status: &mut Status) {
+        self.rs1_imm_ops(status, |rs1, imm| { rs1 | imm} );
+    }
+
+    fn andi(&self, status: &mut Status) {
+        self.rs1_imm_ops(status, |rs1, imm| { rs1 & imm} );
+    }
+
+    fn slli(&self, status: &mut Status) {
+        self.rs1_imm_ops(status, |rs1, imm| {
+            let shamt = imm.truncate((4, 0));
+            rs1 << shamt.as_u8() as usize
+        })
+    }
+
+    fn srli(&self, status: &mut Status) {
+        self.rs1_imm_ops(status, |rs1, imm| {
+            let shamt = imm.truncate((4, 0)).as_u8() as usize;
+            rs1 >> shamt
+        })
+    }
+
+    fn srai(&self, status: &mut Status) {
+        self.rs1_imm_ops(
+            status,
+            |rs1, imm| { arithmetic_right_shift(rs1, imm) },
+        )
+    }
+
+    fn rs1_rs2_ops(&self, status: &mut Status, f: impl Fn(Bit, Bit) -> Bit) {
+        let rs1_value = status.read_reg_value(self.rs1());
+        let rs2_value = status.read_reg_value(self.rs2());
+        let result = f(rs1_value, rs2_value);
+
+        status.write_reg_value(result, self.rd());
+    }
+
+    fn add(&self, status: &mut Status) {
+        self.rs1_rs2_ops(status, |rs1, rs2| rs1 + rs2);
+    }
+
+    fn sub(&self, status: &mut Status) {
+        self.rs1_rs2_ops(status, |rs1, rs2| rs1 - rs2);
+    }
+
+    fn xor(&self, status: &mut Status) {
+        self.rs1_rs2_ops(status, |rs1, rs2| rs1 ^ rs2);
+    }
+
+    fn or(&self, status: &mut Status) {
+        self.rs1_rs2_ops(status, |rs1, rs2| rs1 | rs2);
+    }
+
+    fn and(&self, status: &mut Status) {
+        self.rs1_rs2_ops(status, |rs1, rs2| rs1 & rs2);
+    }
+
+    fn slt(&self, status: &mut Status) {
+        self.rs1_rs2_ops(status, |rs1, rs2| {
+            let converter = convert_into_signed_value;
+            if converter(&rs1) < converter(&rs2) { Bit::new(1) } else { Bit::new(0) }
+        })
+    }
+
+    fn sltu(&self, status: &mut Status) {
+        self.rs1_rs2_ops(status, |rs1, rs2| {
+            if rs1 < rs2 { Bit::new(1) } else { Bit::new(0) }
+        })
+    }
+
+    fn sll(&self, status: &mut Status) {
+        self.rs1_rs2_ops(status, |rs1, rs2| {
+            let shamt = rs2.as_u32() as usize;
+            rs1 << shamt
+        })
+    }
+
+    fn srl(&self, status: &mut Status) {
+        self.rs1_rs2_ops(status, |rs1, rs2| {
+            let shamt = rs2.as_u32() as usize;
+            rs1 >> shamt
+        })
+    }
+
+    fn sra(&self, status: &mut Status) {
+        self.rs1_rs2_ops(
+            status,
+            |rs1, rs2| arithmetic_right_shift(rs1, rs2)
+        )
+    }
+
+    // FENCE, ECALL and EBREAK instruction does not do anything
+    fn fence(&self, status: &mut Status) {}
+    fn ecall(&self, status: &mut Status) {}
+    fn ebreak(&self, status: &mut Status) {}
+
     pub fn exec(&self, status: &mut Status) {
         match self.opcode {
             Opcode::LUI => self.lui(status),
-            _ => (),
+            Opcode::AUIPC => self.auipc(status),
+            Opcode::JAL => self.jal(status),
+            Opcode::JALR => self.jalr(status),
+            Opcode::BEQ => self.beq(status),
+            Opcode::BNE => self.bne(status),
+            Opcode::BLT => self.blt(status),
+            Opcode::BGE => self.bge(status),
+            Opcode::BLTU => self.bltu(status),
+            Opcode::BGEU => self.bgeu(status),
+            Opcode::LB => self.lb(status),
+            Opcode::LH => self.lh(status),
+            Opcode::LW => self.lw(status),
+            Opcode::LBU => self.lbu(status),
+            Opcode::LHU => self.lhu(status),
+            Opcode::SB => self.sb(status),
+            Opcode::SH => self.sh(status),
+            Opcode::SW => self.sw(status),
+            Opcode::ADDI => self.addi(status),
+            Opcode::SLTI => self.slti(status),
+            Opcode::SLTIU => self.sltiu(status),
+            Opcode::XORI => self.xori(status),
+            Opcode::ORI => self.ori(status),
+            Opcode::ANDI => self.andi(status),
+            Opcode::SLLI => self.slli(status),
+            Opcode::SRLI => self.srli(status),
+            Opcode::SRAI => self.srai(status),
+            Opcode::ADD => self.add(status),
+            Opcode::SUB => self.sub(status),
+            Opcode::SLL => self.sll(status),
+            Opcode::SLT => self.slt(status),
+            Opcode::SLTU => self.sltu(status),
+            Opcode::XOR => self.xor(status),
+            Opcode::SRL => self.srl(status),
+            Opcode::SRA => self.sra(status),
+            Opcode::OR => self.or(status),
+            Opcode::AND => self.and(status),
+            Opcode::FENCE => self.fence(status),
+            Opcode::ECALL => self.ecall(status),
+            Opcode::EBREAK => self.ebreak(status),
         }
     }
 }
@@ -181,6 +470,22 @@ fn convert_into_signed_value(value: &Bit) -> BigInt {
         BigInt::from_bytes_be(Sign::Minus, &bytes[..])
     } else {
         value.value().clone()
+    }
+}
+
+fn arithmetic_right_shift(value: Bit, shamt: Bit) -> Bit {
+    let shamt = shamt.truncate((4, 0)).as_u8() as usize;
+
+    if value.truncate(31) == Bit::new(1) && shamt > 0{
+        let length = 32_usize - (1 << shamt);
+        let mask = ((BigInt::new(Sign::Plus, vec![1]) << 32) - 1);
+        let mask = mask << length;
+        let mask: BigInt = mask & ((BigInt::new(Sign::Plus, vec![1]) << 32) - 1);
+        let mask = Bit::new((mask.clone(), 32));
+
+        (value >> shamt) & mask
+    } else {
+        Bit::new((value.value().clone(), 32))
     }
 }
 
