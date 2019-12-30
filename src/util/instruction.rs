@@ -96,9 +96,59 @@ impl Instruction {
         }
     }
 
+    fn lui(&self, status: &mut Status) {
+        status.write_reg_value(
+            self.imm(),
+            self.rd(),
+        )
+    }
+
+    fn auipc(&self, status: &mut Status) {
+        status.write_reg_value(
+            self.imm() + status.get_pc(),
+            self.rd(),
+        )
+    }
+
+    fn jal(&self, status: &mut Status) {
+        let dest = self.imm() + status.get_pc();
+        let next_pc = status.get_pc() + Bit::new(4);
+
+        status.push_queue(dest);
+        status.write_reg_value(next_pc, self.rd());
+    }
+
+    fn jalr(&self, status: &mut Status) {
+        let rs1_value = status.read_reg_value(self.rs1());
+        let dest = self.imm() + rs1_value + status.get_pc();
+        let next_pc = status.get_pc() + Bit::new(4);
+
+        status.push_queue(dest);
+        status.write_reg_value(next_pc, self.rd());
+    }
+
+    // execute branch instruction operation
+    fn branch(&self, status: &mut Status, f: impl Fn(Bit, Bit) -> bool) {
+        let rs1_value = status.read_reg_value(self.rs1());
+        let rs2_value = status.read_reg_value(self.rs2());
+
+        let branch_dest =
+            if f(rs1_value, rs2_value){
+                status.get_pc() + self.imm()
+            } else {
+                status.get_pc() + Bit::new(4)
+            };
+
+        status.push_queue(branch_dest);
+    }
+
+    fn beq(&self, status: &mut Status) { self.branch(status, |a, b| a == b); }
+    fn bne(&self, status: &mut Status) { self.branch(status, |a, b| a != b); }
+
     pub fn exec(&self, status: &mut Status) {
         match self.opcode {
-
+            Opcode::LUI => self.lui(status),
+            _ => (),
         }
     }
 }
