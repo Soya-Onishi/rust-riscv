@@ -1,8 +1,10 @@
 extern crate bitwise;
+extern crate num_bigint;
 
 use super::status::Status;
 
 use std::fmt;
+use num_bigint::{Sign, BigInt};
 use bitwise::*;
 
 pub struct Instruction {
@@ -144,7 +146,22 @@ impl Instruction {
 
     fn beq(&self, status: &mut Status) { self.branch(status, |a, b| a == b); }
     fn bne(&self, status: &mut Status) { self.branch(status, |a, b| a != b); }
-
+    fn blt(&self, status: &mut Status) {
+        self.branch(status, |a, b| {
+            let a = convert_into_signed_value(&a);
+            let b = convert_into_signed_value(&b);
+            a < b
+        });
+    }
+    fn bge(&self, status: &mut Status) {
+        self.branch(status, |a, b| {
+            let a = convert_into_signed_value(&a);
+            let b = convert_into_signed_value(&b);
+            a >= b
+        });
+    }
+    fn bltu(&self, status: &mut Status) { self.branch(status, |a, b| a < b); }
+    fn bgeu(&self, status: &mut Status) { self.branch(status, |a, b| a >= b); }
     pub fn exec(&self, status: &mut Status) {
         match self.opcode {
             Opcode::LUI => self.lui(status),
@@ -155,6 +172,16 @@ impl Instruction {
 
 fn make_panic_msg(name: EncodeType, field: &str) -> String {
     format!("{} does not have {} field", name, field)
+}
+
+fn convert_into_signed_value(value: &Bit) -> BigInt {
+    if value.truncate(31) == Bit::new(1) {
+        let value = -value.value();
+        let (_, bytes) = value.to_bytes_be();
+        BigInt::from_bytes_be(Sign::Minus, &bytes[..])
+    } else {
+        value.value().clone()
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
