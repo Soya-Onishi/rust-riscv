@@ -26,8 +26,9 @@ impl Status {
         self._regs[index] = value;
     }
 
-    pub fn read_mem_value(&self, address: Bit) -> Bit {
-        let (offset, index) = separate_addr(address.as_u32());
+    pub fn read_mem_value(&self, address: &Bit) -> Bit {
+        let (offset, index) =
+            separate_addr(address.as_u32() as usize);
 
         match self._memory.get(&offset) {
             Some(&table) => Bit::new((table[index] as u32, 8)),
@@ -35,12 +36,20 @@ impl Status {
         }
     }
 
-    pub fn write_mem_value(&mut self, value: Bit, address: Bit) {
-        let address = address.as_u32();
-        let (_, bytes) = value.value().to_bytes_le();
+    pub fn write_mem_value(&mut self, value: Bit, address: &Bit) {
+        let address = address.as_u32() as usize;
+        let (_, mut bytes) = value.value().to_bytes_le();
+        let length = value.length() / 8;
+        let mut pad =
+            if bytes.len() < length {
+                vec![0; length - bytes.len()]
+            } else {
+                vec![]
+            };
+        bytes.append(&mut pad);
 
-        for (&byte, addr) in bytes.iter().zip(address..) {
-            let (offset, index) = separate_addr(addr);
+        for (&byte, offset) in bytes.iter().zip(0..length) {
+            let (offset, index) = separate_addr(address + offset);
 
             match self._memory.get_mut(&offset) {
                 Some(table) => {
@@ -60,7 +69,7 @@ impl Status {
         self._pc_queue[depth - 1] = Some(address)
     }
 
-    pub fn pop_queue(&mut self, address: Bit) -> Option<Bit> {
+    pub fn pop_queue(&mut self) -> Option<Bit> {
         let queue = self._pc_queue.clone();
         let (dest, remains) = queue.split_at(1);
         self._pc_queue = remains.to_vec();
@@ -70,7 +79,7 @@ impl Status {
     }
 }
 
-fn separate_addr(address: u32) -> (usize, usize) {
+fn separate_addr(address: usize) -> (usize, usize) {
     let offset = address >> 11;
     let index = address & ((1 << 11) - 1);
 
