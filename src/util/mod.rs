@@ -1,2 +1,2 @@
-mod instruction;
-mod status;
+pub mod instruction;
+pub mod status;

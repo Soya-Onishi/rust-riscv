@@ -14,7 +14,7 @@ pub struct Instruction {
 }
 
 impl Instruction {
-    fn new(inst: Bit) -> Instruction {
+    pub fn new(inst: Bit) -> Instruction {
         let opcode_bit = inst.truncate((6, 0)).as_u8();
         let funct3_bit = inst.truncate((14, 12)).as_u8();
         let funct7_bit = inst.truncate((31, 25)).as_u8();
