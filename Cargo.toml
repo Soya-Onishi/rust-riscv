@@ -9,3 +9,6 @@ edition = "2018"
 [dependencies]
 num-bigint = "0.2"
 bitwise = { path = "/Users/soya/Documents/src/rust/bitwise" }
+
+[dev-dependencies]
+rand = "0.7"
