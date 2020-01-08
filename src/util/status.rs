@@ -1,6 +1,7 @@
 extern crate bitwise;
 
 use bitwise::*;
+use bitwise::errors::Error;
 use std::collections::HashMap;
 
 pub struct Status {
@@ -15,29 +16,31 @@ impl Status {
     pub fn get_pc(&self) -> Bit { self._pc.clone() }
     pub fn set_pc(&mut self, address: Bit) { self._pc = address }
 
-    pub fn read_reg_value(&self, index: Bit) -> Bit {
-        let index = index.as_u8() as usize;
+    pub fn read_reg_value(&self, index: Bit) -> Result<Bit, Error> {
+        let index = index.as_u8()? as usize;
 
-        self._regs[index].clone()
+        Ok(self._regs[index].clone())
     }
 
-    pub fn write_reg_value(&mut self, value: Bit, index: Bit) {
-        let index = index.as_u8() as usize;
+    pub fn write_reg_value(&mut self, value: Bit, index: Bit) -> Result<(), Error>{
+        let index = index.as_u8()? as usize;
         self._regs[index] = value;
+
+        Ok(())
     }
 
-    pub fn read_mem_value(&self, address: &Bit) -> Bit {
+    pub fn read_mem_value(&self, address: &Bit) -> Result<Bit, Error> {
         let (offset, index) =
-            separate_addr(address.as_u32() as usize);
+            separate_addr(address.as_u32()? as usize);
 
-        match self._memory.get(&offset) {
-            Some(&table) => Bit::new((table[index] as u32, 8)),
-            None => Bit::new((0, 8)),
+         match self._memory.get(&offset) {
+            Some(&table) => Bit::new_with_length(table[index] as u32, 8),
+            None => Bit::new_with_length(0, 8),
         }
     }
 
-    pub fn write_mem_value(&mut self, value: Bit, address: &Bit) {
-        let address = address.as_u32() as usize;
+    pub fn write_mem_value(&mut self, value: Bit, address: &Bit) -> Result<(), Error> {
+        let address = address.as_u32()? as usize;
         let (_, mut bytes) = value.value().to_bytes_le();
         let length = value.length() / 8;
         let mut pad =
@@ -62,6 +65,8 @@ impl Status {
                 }
             }
         }
+
+        Ok(())
     }
 
     pub fn push_queue(&mut self, address: Bit) {
