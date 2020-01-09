@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 num-bigint = "0.2"
-bitwise = { path = "/home/soya/Documents/src/rust/bitwise" }
+bitwise = { git = "https://github.com/Soya-Onishi/rust-riscv" }
 
 [dev-dependencies]
 rand = "0.7"
