@@ -137,12 +137,12 @@ impl Instruction {
             EncodeType::RType =>
                 panic!(make_panic_msg(EncodeType::RType, "imm")),
             EncodeType::IType =>
-                self.raw_code.truncate((31, 20)).sign_ext(32),
+                self.raw_code.truncate((31, 20))?.sign_ext(32),
             EncodeType::SType => {
                 let upper = self.raw_code.truncate((31, 25))?;
                 let lower = self.raw_code.truncate((11, 7))?;
 
-                Bit::concat(vec![&upper, &lower]).sign_ext(32)
+                Bit::concat(vec![&upper, &lower])?.sign_ext(32)
             }
             EncodeType::BType => {
                 let bit12 = self.raw_code.truncate(31)?;
@@ -150,12 +150,13 @@ impl Instruction {
                 let bit10_5 = self.raw_code.truncate((30, 25))?;
                 let bit4_1 = self.raw_code.truncate((11, 8))?;
 
-                Bit::concat(vec![&bit12, &bit11, &bit10_5, &bit4_1]).sign_ext(32)
+                Bit::concat(vec![&bit12, &bit11, &bit10_5, &bit4_1])?.sign_ext(32)
             }
             EncodeType::UType => {
                 let bit31_12 = self.raw_code.truncate((31, 12))?;
+                let bit11_0 = Bit::new_with_length(0, 12)?;
 
-                Bit::concat(vec![&bit31_12, &Bit::new((0, 12))])
+                Bit::concat(vec![&bit31_12, &bit11_0])
             }
             EncodeType::JType => {
                 let bit20 = self.raw_code.truncate(31)?;
@@ -191,33 +192,27 @@ impl Instruction {
         status.write_reg_value(
             self.imm()?,
             self.rd()?,
-        );
-
-        Ok(())
+        )
     }
 
     fn auipc(&self, status: &mut Status) -> Result<(), Error> {
         status.write_reg_value(
-            self.imm() + status.get_pc(),
+            self.imm()? + status.get_pc(),
             self.rd()?,
-        );
-
-        Ok(())
+        )
     }
 
     fn jal(&self, status: &mut Status) -> Result<(), Error> {
-        let dest = self.imm() + status.get_pc();
+        let dest = self.imm()? + status.get_pc();
         let next_pc = status.get_pc() + Bit::new(4);
 
         status.push_queue(dest);
-        status.write_reg_value(next_pc, self.rd()?);
-
-        Ok(())
+        status.write_reg_value(next_pc, self.rd()?)
     }
 
     fn jalr(&self, status: &mut Status) -> Result<(), Error> {
-        let rs1_value = status.read_reg_value(self.rs1()?);
-        let dest = self.imm() + rs1_value + status.get_pc();
+        let rs1_value = status.read_reg_value(self.rs1()?)?;
+        let dest = self.imm()? + rs1_value + status.get_pc();
         let next_pc = status.get_pc() + Bit::new(4);
 
         status.push_queue(dest);
@@ -227,12 +222,12 @@ impl Instruction {
     }
 
     // execute branch instruction operation
-    fn branch(&self, status: &mut Status, f: impl Fn(Bit, Bit) -> bool) -> Result<(), Error>{
+    fn branch(&self, status: &mut Status, f: impl Fn(Bit, Bit) -> Result<bool, Error>) -> Result<(), Error>{
         let rs1_value = status.read_reg_value(self.rs1()?)?;
         let rs2_value = status.read_reg_value(self.rs2()?)?;
 
         let branch_dest =
-            if f(rs1_value, rs2_value){
+            if f(rs1_value, rs2_value)? {
                 status.get_pc() + self.imm()?
             } else {
                 status.get_pc() + Bit::new(4)
@@ -243,33 +238,35 @@ impl Instruction {
         Ok(())
     }
 
-    fn beq(&self, status: &mut Status) -> Result<(), Error> { self.branch(status, |a, b| a == b) }
-    fn bne(&self, status: &mut Status) -> Result<(), Error> { self.branch(status, |a, b| a != b) }
+    fn beq(&self, status: &mut Status) -> Result<(), Error> { self.branch(status, |a, b| Ok(a == b)) }
+    fn bne(&self, status: &mut Status) -> Result<(), Error> { self.branch(status, |a, b| Ok(a != b)) }
     fn blt(&self, status: &mut Status) -> Result<(), Error> {
         self.branch(status, |a, b| {
-            let a = convert_into_signed_value(&a);
-            let b = convert_into_signed_value(&b);
-            a < b
+            let a = convert_into_signed_value(&a)?;
+            let b = convert_into_signed_value(&b)?;
+
+            Ok(a < b)
         })
     }
     fn bge(&self, status: &mut Status) -> Result<(), Error> {
         self.branch(status, |a, b| {
-            let a = convert_into_signed_value(&a);
-            let b = convert_into_signed_value(&b);
-            a >= b
+            let a = convert_into_signed_value(&a)?;
+            let b = convert_into_signed_value(&b)?;
+            Ok(a >= b)
         })
     }
-    fn bltu(&self, status: &mut Status) -> Result<(), Error> { self.branch(status, |a, b| a < b) }
-    fn bgeu(&self, status: &mut Status) -> Result<(), Error> { self.branch(status, |a, b| a >= b) }
+    fn bltu(&self, status: &mut Status) -> Result<(), Error> { self.branch(status, |a, b| Ok(a < b)) }
+    fn bgeu(&self, status: &mut Status) -> Result<(), Error> { self.branch(status, |a, b| Ok(a >= b)) }
 
     fn load(&self, status: &mut Status, byte_count: u32, use_sign_ext: bool) -> Result<(), Error>{
-        let base_addr = self.rs1() + self.imm();
+        let base_addr = self.rs1()? + self.imm()?;
         let data = status.read_mem_value(&base_addr)?;
-        let data = (1..byte_count).fold(data, |attached, offset| {
+        let data = (1..byte_count).try_fold(data, |attached, offset| {
             let addr = base_addr.clone() + Bit::new(offset);
             let attach_data = status.read_mem_value(&addr)?;
-            Bit::concat(vec![&attach_data, &attached])?
-        });
+
+            Bit::concat(vec![&attach_data, &attached])
+        })?;
 
         let data =
             if use_sign_ext {
@@ -288,7 +285,7 @@ impl Instruction {
     fn lhu(&self, status: &mut Status) -> Result<(), Error> { self.load(status, 2, false) }
 
     fn store(&self, status: &mut Status, byte_size: usize) -> Result<(), Error> {
-        let addr = self.rs1() + self.imm();
+        let addr = self.rs1()? + self.imm()?;
         let data = status.read_reg_value(self.rs2()?)?;
         let data = data.truncate((byte_size * 8 - 1, 0))?;
 
@@ -299,65 +296,72 @@ impl Instruction {
     fn sh(&self, status: &mut Status) -> Result<(), Error> { self.store(status, 2) }
     fn sw(&self, status: &mut Status) -> Result<(), Error> { self.store(status, 4) }
 
-    fn rs1_imm_ops(&self, status: &mut Status, f: impl Fn(Bit, Bit) -> Bit) -> Result<(), Error> {
+    fn rs1_imm_ops(&self, status: &mut Status, f: impl Fn(Bit, Bit) -> Result<Bit, Error>) -> Result<(), Error> {
         let rs1_value = status.read_reg_value(self.rs1()?)?;
         let imm_value = self.imm()?;
-        let result = f(rs1_value, imm_value);
+        let result = f(rs1_value, imm_value)?;
 
         status.write_reg_value(result, self.rd()?)
     }
 
     fn addi(&self, status: &mut Status)-> Result<(), Error> {
-        self.rs1_imm_ops(status, |rs1, imm| rs1 + imm)
+        self.rs1_imm_ops(status, |rs1, imm| Ok(rs1 + imm))
     }
 
     fn slti(&self, status: &mut Status) -> Result<(), Error> {
         self.rs1_imm_ops(status, |rs1, imm| {
             let converter = convert_into_signed_value;
-            if converter(&rs1) < converter(&imm) { Bit::new(1)} else { Bit::new(0) }
+            let value = if converter(&rs1)? < converter(&imm)? { Bit::new(1)} else { Bit::new(0) };
+
+            Ok(value)
         })
     }
 
     fn sltiu(&self, status: &mut Status) -> Result<(), Error> {
         self.rs1_imm_ops(status, |rs1, imm| {
-            if rs1 < imm { Bit::new(1) } else { Bit::new(0) }
+            let value = if rs1 < imm { Bit::new(1) } else { Bit::new(0) };
+
+            Ok(value)
         })
     }
 
     fn xori(&self, status: &mut Status) -> Result<(), Error> {
-        self.rs1_imm_ops(status, |rs1, imm| { rs1 ^ imm} )
+        self.rs1_imm_ops(status, |rs1, imm| { Ok(rs1 ^ imm) } )
     }
 
     fn ori(&self, status: &mut Status) -> Result<(), Error> {
-        self.rs1_imm_ops(status, |rs1, imm| { rs1 | imm} )
+        self.rs1_imm_ops(status, |rs1, imm| { Ok(rs1 | imm) } )
     }
 
     fn andi(&self, status: &mut Status) -> Result<(), Error> {
-        self.rs1_imm_ops(status, |rs1, imm| { rs1 & imm} )
+        self.rs1_imm_ops(status, |rs1, imm| { Ok(rs1 & imm) } )
     }
 
     fn slli(&self, status: &mut Status) -> Result<(), Error> {
         self.rs1_imm_ops(status, |rs1, imm| {
             let shamt = imm.truncate((4, 0))?;
-            rs1 << shamt.as_u8()? as usize
+            let value = rs1 << shamt.as_u8()? as usize;
+
+            Ok(value)
         })
     }
 
     fn srli(&self, status: &mut Status) -> Result<(), Error> {
         self.rs1_imm_ops(status, |rs1, imm| {
             let shamt = imm.truncate((4, 0))?.as_u8()? as usize;
-            rs1 >> shamt
+
+            Ok(rs1 >> shamt)
         })
     }
 
     fn srai(&self, status: &mut Status) -> Result<(), Error> {
         self.rs1_imm_ops(
             status,
-            |rs1, imm| { arithmetic_right_shift(rs1, imm) },
+            |rs1, imm| arithmetic_right_shift(rs1, imm),
         )
     }
 
-    fn rs1_rs2_ops(&self, status: &mut Status, f: impl Fn(Bit, Bit) -> Bit) -> Result<(), Error> {
+    fn rs1_rs2_ops(&self, status: &mut Status, f: impl Fn(Bit, Bit) -> Result<Bit, Error>) -> Result<(), Error> {
         let rs1_value = status.read_reg_value(self.rs1()?)?;
         let rs2_value = status.read_reg_value(self.rs2()?)?;
         let result = f(rs1_value, rs2_value)?;
@@ -366,49 +370,53 @@ impl Instruction {
     }
 
     fn add(&self, status: &mut Status) -> Result<(), Error> {
-        self.rs1_rs2_ops(status, |rs1, rs2| rs1 + rs2)
+        self.rs1_rs2_ops(status, |rs1, rs2| Ok(rs1 + rs2))
     }
 
     fn sub(&self, status: &mut Status) -> Result<(), Error> {
-        self.rs1_rs2_ops(status, |rs1, rs2| rs1 - rs2)
+        self.rs1_rs2_ops(status, |rs1, rs2| Ok(rs1 - rs2))
     }
 
     fn xor(&self, status: &mut Status) -> Result<(), Error> {
-        self.rs1_rs2_ops(status, |rs1, rs2| rs1 ^ rs2)
+        self.rs1_rs2_ops(status, |rs1, rs2| Ok(rs1 ^ rs2))
     }
 
     fn or(&self, status: &mut Status) -> Result<(), Error> {
-        self.rs1_rs2_ops(status, |rs1, rs2| rs1 | rs2)
+        self.rs1_rs2_ops(status, |rs1, rs2| Ok(rs1 | rs2))
     }
 
     fn and(&self, status: &mut Status) -> Result<(), Error> {
-        self.rs1_rs2_ops(status, |rs1, rs2| rs1 & rs2)
+        self.rs1_rs2_ops(status, |rs1, rs2| Ok(rs1 & rs2))
     }
 
     fn slt(&self, status: &mut Status) -> Result<(), Error>{
         self.rs1_rs2_ops(status, |rs1, rs2| {
             let converter = convert_into_signed_value;
-            if converter(&rs1) < converter(&rs2) { Bit::new(1) } else { Bit::new(0) }
+            let value = if converter(&rs1)? < converter(&rs2)? { Bit::new(1) } else { Bit::new(0) };
+            Ok(value)
         })
     }
 
     fn sltu(&self, status: &mut Status) -> Result<(), Error> {
         self.rs1_rs2_ops(status, |rs1, rs2| {
-            if rs1 < rs2 { Bit::new(1) } else { Bit::new(0) }
+            let value = if rs1 < rs2 { Bit::new(1) } else { Bit::new(0) };
+            Ok(value)
         })
     }
 
     fn sll(&self, status: &mut Status) -> Result<(), Error>{
         self.rs1_rs2_ops(status, |rs1, rs2| {
             let shamt = rs2.as_u32()? as usize;
-            rs1 << shamt
+
+            Ok(rs1 << shamt)
         })
     }
 
     fn srl(&self, status: &mut Status) -> Result<(), Error> {
         self.rs1_rs2_ops(status, |rs1, rs2| {
             let shamt = rs2.as_u32()? as usize;
-            rs1 >> shamt
+
+            Ok(rs1 >> shamt)
         })
     }
 
@@ -420,9 +428,9 @@ impl Instruction {
     }
 
     // FENCE, ECALL and EBREAK instruction does not do anything
-    fn fence(&self, status: &mut Status) {}
-    fn ecall(&self, status: &mut Status) {}
-    fn ebreak(&self, status: &mut Status) {}
+    fn fence(&self, status: &mut Status) -> Result<(), Error> { Ok(()) }
+    fn ecall(&self, status: &mut Status) -> Result<(), Error> { Ok(()) }
+    fn ebreak(&self, status: &mut Status) -> Result<(), Error> { Ok(()) }
 
     pub fn exec(&self, status: &mut Status) -> Result<(), Error> {
         match self.opcode {
@@ -474,29 +482,30 @@ fn make_panic_msg(name: EncodeType, field: &str) -> String {
     format!("{} does not have {} field", name, field)
 }
 
-fn convert_into_signed_value(value: &Bit) -> BigInt {
-    if value.truncate(31) == Bit::new(1) {
+fn convert_into_signed_value(value: &Bit) -> Result<BigInt, Error> {
+    if value.truncate(31)? == Bit::new(1) {
         let value = -value.value();
         let (_, bytes) = value.to_bytes_be();
-        BigInt::from_bytes_be(Sign::Minus, &bytes[..])
+
+        Ok(BigInt::from_bytes_be(Sign::Minus, &bytes[..]))
     } else {
-        value.value().clone()
+        Ok(value.value().clone())
     }
 }
 
-fn arithmetic_right_shift(value: Bit, shamt: Bit) -> Bit {
-    let shamt = shamt.truncate((4, 0)).as_u8() as usize;
+fn arithmetic_right_shift(value: Bit, shamt: Bit) -> Result<Bit, Error> {
+    let shamt = shamt.truncate((4, 0))?.as_u8()? as usize;
 
-    if value.truncate(31) == Bit::new(1) && shamt > 0{
+    if value.truncate(31)? == Bit::new(1) && shamt > 0{
         let length = 32_usize - (1 << shamt);
         let mask = ((BigInt::new(Sign::Plus, vec![1]) << 32) - 1);
         let mask = mask << length;
         let mask: BigInt = mask & ((BigInt::new(Sign::Plus, vec![1]) << 32) - 1);
-        let mask = Bit::new((mask.clone(), 32));
+        let mask = Bit::new_with_length(mask.clone(), 32)?;
 
-        (value >> shamt) & mask
+        Ok((value >> shamt) & mask)
     } else {
-        Bit::new((value.value().clone(), 32))
+        Bit::new_with_length(value.value().clone(), 32)
     }
 }
 
@@ -558,4 +567,34 @@ enum Opcode {
     FENCE,
     ECALL,
     EBREAK,
+}
+
+#[cfg(test)]
+mod test {
+    use super::Instruction;
+    use rand::Rng;
+    use rand::rngs::ThreadRng;
+
+    fn construct_utype_inst(opcode_value: u32, &mut rng: ThreadRng) -> (Instruction, u32, u32){
+        let imm: u32 = rng.gen() & 0b1111_1111_1111_1111_1111_0000_0000_0000;
+        let rd: u32 = rng.gen_range(0, 31);
+        let inst = Bit::new(imm | (rd << 7) | opcode_value);
+        let inst = match Instruction::new(inst) {
+            Ok(i) => i,
+            Err(err) => panic!(err)
+        };
+
+        (inst, imm, rd)
+    }
+
+    #[test]
+    fn construct_lui() {
+        let rng = rand::thread_rng();
+        let lui_op: u32 = 0b0110111;
+        for _ in 0..100 {
+            let (inst, imm, rd) = construct_utype_inst(lui_op, rng);
+            assert_eq!(inst.rd(), Bit::new(rd));
+            assert_eq!(inst.imm(), Bit::new(imm));
+        }
+    }
 }
