@@ -13,6 +13,16 @@ pub struct Status {
 }
 
 impl Status {
+    pub fn new(delay_cycle: usize) -> Status {
+        Status {
+            _pc: Bit::new(0),
+            _pc_queue: vec![None; delay_cycle],
+            _memory: HashMap::new(),
+            _regs: vec![Bit::new(0); 32],
+            _branch_delay_cycle: delay_cycle,
+        }
+    }
+
     pub fn get_pc(&self) -> Bit { self._pc.clone() }
     pub fn set_pc(&mut self, address: Bit) { self._pc = address }
 
@@ -95,4 +105,37 @@ fn separate_addr(address: usize) -> (usize, usize) {
     let index = address & ((1 << 11) - 1);
 
     (offset as usize, index as usize)
+}
+
+#[cfg(test)]
+mod test {
+    extern crate bitwise;
+    extern crate rand;
+
+    use super::Status;
+    use std::collections::HashMap;
+    use bitwise::*;
+    use rand::{Rng, SeedableRng};
+    use rand::rngs::StdRng;
+
+    #[test]
+    fn read_write_registers() {
+        let mut rng: StdRng = SeedableRng::seed_from_u64(0);
+        let mut status = Status::new(0);
+
+        for _ in 0..1000 {
+            let index = Bit::new_with_length(rng.gen_range(0, 31), 5).unwrap();
+            let value = Bit::new(rng.gen::<u32>());
+
+            status.write_reg_value(value.clone(), index.clone());
+
+            let v = match status.read_reg_value(index.clone()) {
+                Ok(v) => v,
+                Err(err) => {println!("{:?}", err); panic!(err)}
+            };
+
+            if index == Bit::new(0) { assert_eq!(v, Bit::new(0)); }
+            else                           { assert_eq!(v, value); }
+        }
+    }
 }
