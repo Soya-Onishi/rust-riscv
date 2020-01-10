@@ -86,7 +86,7 @@ impl Instruction {
                     0b011 if funct7_bit == 0b000_0000 => Opcode::SLTU,
                     0b100 if funct7_bit == 0b000_0000 => Opcode::XOR,
                     0b101 if funct7_bit == 0b000_0000 => Opcode::SRL,
-                    0b101 if funct7_bit == 0b000_0000 => Opcode::SRA,
+                    0b101 if funct7_bit == 0b010_0000 => Opcode::SRA,
                     0b110 if funct7_bit == 0b000_0000 => Opcode::OR,
                     0b111 if funct7_bit == 0b000_0000 => Opcode::AND,
                     _ => panic!("unexpected pattern match"),
@@ -149,8 +149,8 @@ impl Instruction {
                 let bit11 = self.raw_code.truncate(7)?;
                 let bit10_5 = self.raw_code.truncate((30, 25))?;
                 let bit4_1 = self.raw_code.truncate((11, 8))?;
-
-                Bit::concat(vec![&bit12, &bit11, &bit10_5, &bit4_1])?.sign_ext(32)
+                let bit0 = Bit::new_with_length(0, 1)?;
+                Bit::concat(vec![&bit12, &bit11, &bit10_5, &bit4_1, &bit0])?.sign_ext(32)
             }
             EncodeType::UType => {
                 let bit31_12 = self.raw_code.truncate((31, 12))?;
@@ -525,7 +525,7 @@ impl std::fmt::Display for EncodeType {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Opcode {
     LUI,
     AUIPC,
@@ -571,12 +571,28 @@ enum Opcode {
 
 #[cfg(test)]
 mod test {
-    use super::Instruction;
-    use rand::Rng;
-    use rand::rngs::ThreadRng;
+    extern crate bitwise;
 
-    fn construct_utype_inst(opcode_value: u32, &mut rng: ThreadRng) -> (Instruction, u32, u32){
-        let imm: u32 = rng.gen() & 0b1111_1111_1111_1111_1111_0000_0000_0000;
+    use super::{Instruction, Opcode};
+    use rand::{Rng, SeedableRng, rngs::StdRng};
+
+    use bitwise::*;
+
+    fn bit_truncate(bit: u32, upper: u32, lower: u32) -> u32 {
+        let mask = if (upper + 1) > 31 { 0 } else { 1_u32 << (upper + 1) };
+        (bit & (mask.wrapping_sub(1) ^ 1_u32.wrapping_shl(lower).wrapping_sub(1))) >> lower
+    }
+
+    fn sign_ext(bit: u32, index: u32) -> u32 {
+        if bit_truncate(bit, index, index) == 1 {
+            bit | (0_u32.wrapping_sub(1) ^ 1_u32.wrapping_shl(index).wrapping_sub(1))
+        } else {
+            bit
+        }
+    }
+
+    fn construct_utype_inst(opcode_value: u32, rng: &mut StdRng) -> (Instruction, u32, u32){
+        let imm: u32 = rng.gen::<u32>() & 0b1111_1111_1111_1111_1111_0000_0000_0000;
         let rd: u32 = rng.gen_range(0, 31);
         let inst = Bit::new(imm | (rd << 7) | opcode_value);
         let inst = match Instruction::new(inst) {
@@ -587,14 +603,324 @@ mod test {
         (inst, imm, rd)
     }
 
+    fn construct_btype_inst(opcode: u32, funct3: u32, rng: &mut StdRng) -> (Instruction, Bit) {
+        let imm: u32 = rng.gen::<u32>() & 0b1111_1110_0000_0000_0000_1111_1000_0000;
+        let rs1: u32 = rng.gen_range(0, 31);
+        let rs2: u32 = rng.gen_range(0, 31);
+
+        let inst = Bit::new(imm | (rs1 << 15) | (rs2 << 20) | (funct3 << 12) | opcode);
+        let inst = match Instruction::new(inst) {
+            Ok(i) => i,
+            Err(err) => panic!(err),
+        };
+
+        let imm = {
+            println!("{:032b}", imm);
+
+            let bit12 = bit_truncate(imm, 31, 31) << 12;
+            let bit11 = bit_truncate(imm, 7, 7) << 11;
+            let bit10_5 = bit_truncate(imm, 30, 25) << 5;
+            let bit4_1 = bit_truncate(imm, 11, 8) << 1;
+
+            sign_ext(bit12 | bit11 | bit10_5 | bit4_1, 12)
+        };
+
+        (inst, Bit::new(imm))
+    }
+
+    fn construct_jtype_inst(opcode: u32, rng: &mut StdRng) -> (Instruction, Bit, Bit) {
+        let inst_imm = rng.gen::<u32>() & 0b1111_1111_1111_1111_1111_0000_0000_0000;
+        let imm = {
+            let bit20 = bit_truncate(inst_imm, 31, 31) << 20;
+            let bit10_1 = bit_truncate(inst_imm, 30, 21) << 1;
+            let bit11 = bit_truncate(inst_imm, 20, 20) << 11;
+            let bit19_12 = bit_truncate(inst_imm, 19, 12) << 12;
+
+            sign_ext((bit20 | bit19_12 | bit11 | bit10_1), 20)
+        };
+        let rd = rng.gen_range(0, 31);
+        let inst = Bit::new(inst_imm | (rd << 7) | opcode);
+        let inst = match Instruction::new(inst) {
+            Ok(i) => i,
+            Err(err) => panic!(err)
+        };
+
+        (inst, Bit::new(imm), Bit::new(rd))
+    }
+
+    fn construct_itype_inst(op: Opcode, opcode: u32, funct3: u32, rng: &mut StdRng) {
+        let imm = rng.gen::<u32>() & 0b1111_1111_1111_0000_0000_0000_0000_0000;
+        let rs1 = rng.gen_range(0, 31);
+        let rd = rng.gen_range(0, 31);
+        let inst = imm | (rs1 << 15) | (rd << 7) | (funct3 << 12) | opcode;
+        let inst = Bit::new(inst);
+        let inst = match Instruction::new(inst) {
+            Ok(i) => i,
+            Err(err) => panic!(err),
+        };
+
+        let imm = sign_ext(bit_truncate(imm, 31, 20), 11);
+
+        assert_eq!(inst.opcode, op);
+        assert_eq!(inst.imm().unwrap(), Bit::new(imm));
+        assert_eq!(inst.rd().unwrap(), Bit::new(rd));
+        assert_eq!(inst.rs1().unwrap(), Bit::new(rs1));
+        assert_eq!(inst.funct3().unwrap(), Bit::new(funct3));
+    }
+
+    fn construct_itype_insts(op: Opcode, opcode: u32, funct3: u32) {
+        let mut rng = SeedableRng::seed_from_u64(0);
+        for _ in 0..100 {
+            construct_itype_inst(op, opcode, funct3, &mut rng);
+        }
+    }
+
+    fn construct_shift_inst(opcode: Opcode, funct3: u32, funct7: u32, rng: &mut StdRng) {
+        let shamt = rng.gen_range(0, 31);
+        let rs1 = rng.gen_range(0, 31);
+        let rd = rng.gen_range(0, 31);
+        let inst = (funct7 << 25) | (shamt << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | 0b0010011;
+        let inst = match Instruction::new(Bit::new(inst)) {
+            Ok(i) => i,
+            Err(err) => panic!(err)
+        };
+
+        assert_eq!(inst.opcode, opcode);
+        assert_eq!(inst.imm().unwrap(), Bit::new(shamt | (funct7 << 5)));
+        assert_eq!(inst.rs1().unwrap(), Bit::new(rs1));
+        assert_eq!(inst.rd().unwrap(), Bit::new(rd));
+        assert_eq!(inst.funct3().unwrap(), Bit::new(funct3));
+    }
+
+    fn construct_shift_insts(opcode: Opcode, funct3: u32, funct7: u32) {
+        let mut rng = SeedableRng::seed_from_u64(0);
+
+        for _ in 0..100 {
+            construct_shift_inst(opcode, funct3, funct7, &mut rng);
+        }
+    }
+
+    fn construct_rtype_inst(op: Opcode, funct3: u32, funct7: u32, rng: &mut StdRng) {
+        let rs1 = rng.gen_range(0, 31);
+        let rs2 = rng.gen_range(0, 31);
+        let rd = rng.gen_range(0, 31);
+        let opcode = 0b0110011;
+        let inst = (funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode;
+        let inst = match Instruction::new(Bit::new(inst)) {
+            Ok(i) => i,
+            Err(err) => panic!(err)
+        };
+
+        assert_eq!(inst.opcode, op);
+        assert_eq!(inst.rs1().unwrap(), Bit::new(rs1));
+        assert_eq!(inst.rs2().unwrap(), Bit::new(rs2));
+        assert_eq!(inst.rd().unwrap(), Bit::new(rd));
+        assert_eq!(inst.funct3().unwrap(), Bit::new(funct3));
+        assert_eq!(inst.funct7().unwrap(), Bit::new(funct7));
+    }
+
+    fn construct_rtype_insts(opcode: Opcode, funct3: u32, funct7: u32) {
+        let mut rng = SeedableRng::seed_from_u64(0);
+        for _ in 0..100 {
+            construct_rtype_inst(opcode, funct3, funct7, &mut rng);
+        }
+    }
+
     #[test]
     fn construct_lui() {
-        let rng = rand::thread_rng();
+        let mut rng = SeedableRng::seed_from_u64(0);
         let lui_op: u32 = 0b0110111;
         for _ in 0..100 {
-            let (inst, imm, rd) = construct_utype_inst(lui_op, rng);
-            assert_eq!(inst.rd(), Bit::new(rd));
-            assert_eq!(inst.imm(), Bit::new(imm));
+            let (inst, imm, rd) = construct_utype_inst(lui_op, &mut rng);
+            assert_eq!(inst.rd().unwrap(), Bit::new(rd));
+            assert_eq!(inst.imm().unwrap(), Bit::new(imm));
         }
+    }
+
+    #[test]
+    fn construct_auipc() {
+        let mut rng = SeedableRng::seed_from_u64(0);
+        let auipc_op: u32 = 0b0010111;
+        for _ in 0..100 {
+            let (inst, imm, rd) = construct_utype_inst(auipc_op, &mut rng);
+            assert_eq!(inst.opcode, Opcode::AUIPC);
+            assert_eq!(inst.rd().unwrap(), Bit::new(rd));
+            assert_eq!(inst.imm().unwrap(), Bit::new(imm));
+        }
+    }
+
+    fn construct_branch(opcode: Opcode, funct3: u32) {
+        let mut rng = SeedableRng::seed_from_u64(0);
+        for _ in 0..100 {
+            let (inst, imm) = construct_btype_inst(0b1100011, funct3, &mut rng);
+            assert_eq!(inst.opcode, opcode);
+            assert_eq!(inst.imm().unwrap(), imm);
+        }
+    }
+
+    #[test]
+    fn construct_beq() {
+        construct_branch(Opcode::BEQ, 0b000);
+    }
+
+    #[test]
+    fn construct_bne() {
+        construct_branch(Opcode::BNE, 0b001);
+    }
+
+    #[test]
+    fn construct_blt() {
+        construct_branch(Opcode::BLT, 0b100);
+    }
+
+    #[test]
+    fn construct_bge() {
+        construct_branch(Opcode::BGE, 0b101);
+    }
+
+    #[test]
+    fn construct_bltu() {
+        construct_branch(Opcode::BLTU,0b110);
+    }
+
+    #[test]
+    fn construct_bgeu() {
+        construct_branch(Opcode::BGEU, 0b111);
+    }
+
+    #[test]
+    fn construct_jal() {
+        let mut rng = SeedableRng::seed_from_u64(0);
+        for _ in 0..100 {
+            let (inst, imm, rd) = construct_jtype_inst(0b1101111, &mut rng);
+            assert_eq!(inst.opcode, Opcode::JAL);
+            assert_eq!(inst.imm().unwrap(), imm);
+            assert_eq!(inst.rd().unwrap(), rd);
+        };
+    }
+
+    #[test]
+    fn construct_jalr() {
+        construct_itype_insts(Opcode::JALR, 0b1100111, 0b000);
+    }
+
+    #[test]
+    fn construct_lb() {
+        construct_itype_insts(Opcode::LB, 0b0000011, 0b000);
+    }
+
+    #[test]
+    fn construct_lh() {
+        construct_itype_insts(Opcode::LH, 0b0000011, 0b001);
+    }
+
+    #[test]
+    fn construct_lw() {
+        construct_itype_insts(Opcode::LW, 0b0000011, 0b010);
+    }
+
+    #[test]
+    fn construct_lbu() {
+        construct_itype_insts(Opcode::LBU, 0b0000011, 0b100);
+    }
+
+    #[test]
+    fn construct_lhu() {
+        construct_itype_insts(Opcode::LHU, 0b0000011, 0b101);
+    }
+
+    #[test]
+    fn construct_addi() {
+        construct_itype_insts(Opcode::ADDI, 0b0010011, 0b000);
+    }
+
+    #[test]
+    fn construct_slti() {
+        construct_itype_insts(Opcode::SLTI, 0b0010011, 0b010);
+    }
+
+    #[test]
+    fn construct_sltiu() {
+        construct_itype_insts(Opcode::SLTIU, 0b0010011, 0b011);
+    }
+
+    #[test]
+    fn construct_xori() {
+        construct_itype_insts(Opcode::XORI, 0b0010011, 0b100);
+    }
+
+    #[test]
+    fn construct_ori() {
+        construct_itype_insts(Opcode::ORI, 0b0010011, 0b110);
+    }
+
+    #[test]
+    fn construct_andi() {
+        construct_itype_insts(Opcode::ANDI, 0b0010011, 0b111);
+    }
+
+    #[test]
+    fn construct_slli() {
+        construct_shift_insts(Opcode::SLLI, 0b001, 0b000_0000);
+    }
+
+    #[test]
+    fn construct_srli() {
+        construct_shift_insts(Opcode::SRLI, 0b101, 0b000_0000);
+    }
+
+    #[test]
+    fn construct_srai() {
+        construct_shift_insts(Opcode::SRAI, 0b101, 0b010_0000);
+    }
+
+    #[test]
+    fn construct_add() {
+        construct_rtype_insts(Opcode::ADD, 0b000, 0b000_0000);
+    }
+
+    #[test]
+    fn construct_sub() {
+        construct_rtype_insts(Opcode::SUB, 0b000, 0b010_0000);
+    }
+
+    #[test]
+    fn construct_sll() {
+        construct_rtype_insts(Opcode::SLL, 0b001, 0b000_0000);
+    }
+
+    #[test]
+    fn construct_slt() {
+        construct_rtype_insts(Opcode::SLT, 0b010, 0b000_0000);
+    }
+
+    #[test]
+    fn construct_sltu() {
+        construct_rtype_insts(Opcode::SLTU, 0b011, 0b000_0000);
+    }
+
+    #[test]
+    fn construct_xor() {
+        construct_rtype_insts(Opcode::XOR, 0b100, 0b000_0000);
+    }
+
+    #[test]
+    fn construct_srl() {
+        construct_rtype_insts(Opcode::SRL, 0b101, 0b000_0000);
+    }
+
+    #[test]
+    fn construct_sra() {
+        construct_rtype_insts(Opcode::SRA, 0b101, 0b010_0000);
+    }
+
+    #[test]
+    fn construct_or() {
+        construct_rtype_insts(Opcode::OR, 0b110, 0b000_0000);
+    }
+
+    #[test]
+    fn construct_and() {
+        construct_rtype_insts(Opcode::AND, 0b111, 0b000_0000);
     }
 }
