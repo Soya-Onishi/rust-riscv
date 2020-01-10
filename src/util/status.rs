@@ -18,13 +18,19 @@ impl Status {
 
     pub fn read_reg_value(&self, index: Bit) -> Result<Bit, Error> {
         let index = index.as_u8()? as usize;
+        let value = match index {
+            0 => Bit::new(0),
+            i => self._regs[i].clone(),
+        };
 
-        Ok(self._regs[index].clone())
+        Ok(value)
     }
 
     pub fn write_reg_value(&mut self, value: Bit, index: Bit) -> Result<(), Error>{
         let index = index.as_u8()? as usize;
-        self._regs[index] = value;
+        if index != 0 {
+            self._regs[index] = value
+        }
 
         Ok(())
     }
