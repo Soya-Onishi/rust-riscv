@@ -7,8 +7,8 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-num-bigint = "0.2"
-bitwise = { git = "https://github.com/Soya-Onishi/rust-riscv" }
+bitwise = { git = "https://github.com/Soya-Onishi/rust-bitwise.git" }
+elf-reader = { git = "https://github.com/Soya-Onishi/elf_reader.git" }
 
 [dev-dependencies]
 rand = "0.7"
