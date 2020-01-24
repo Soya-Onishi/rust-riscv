@@ -16,7 +16,7 @@ impl Status {
     pub fn new(delay_cycle: usize) -> Status {
         Status {
             _pc: Bit::new(0),
-            _pc_queue: vec![None; delay_cycle],
+            _pc_queue: vec![None; delay_cycle + 1],
             _memory: HashMap::new(),
             _regs: vec![Bit::new(0); 32],
             _branch_delay_cycle: delay_cycle,
@@ -27,7 +27,7 @@ impl Status {
     pub fn set_pc(&mut self, address: Bit) { self._pc = address }
 
     pub fn read_reg_value(&self, index: Bit) -> Result<Bit, Error> {
-        let index = index.as_u8()? as usize;
+        let index = index.as_u8() as usize;
         let value = match index {
             0 => Bit::new(0),
             i => self._regs[i].clone(),
@@ -37,9 +37,9 @@ impl Status {
     }
 
     pub fn write_reg_value(&mut self, value: Bit, index: Bit) -> Result<(), Error>{
-        let index = index.as_u8()? as usize;
+        let index = index.as_u8() as usize;
         if index != 0 {
-            self._regs[index] = value
+            self._regs[index] = value.zero_ext(32)?;
         }
 
         Ok(())
@@ -47,7 +47,7 @@ impl Status {
 
     pub fn read_mem_value(&self, address: &Bit) -> Result<Bit, Error> {
         let (offset, index) =
-            separate_addr(address.as_u32()? as usize);
+            separate_addr(address.as_u32() as usize);
 
          match self._memory.get(&offset) {
             Some(&table) => Bit::new_with_length(table[index] as u32, 8),
@@ -56,7 +56,7 @@ impl Status {
     }
 
     pub fn write_mem_value(&mut self, value: Bit, address: &Bit) -> Result<(), Error> {
-        let address = address.as_u32()? as usize;
+        let address = address.as_u32() as usize;
         let (_, mut bytes) = value.value().to_bytes_le();
         let length = value.length() / 8;
         let mut pad =
@@ -85,9 +85,21 @@ impl Status {
         Ok(())
     }
 
+    pub fn write_mem_value_directly(&mut self, value: u8, address: usize) {
+        let (offset, index) = separate_addr(address);
+        match self._memory.get_mut(&offset) {
+            Some(table) => table[index] = value,
+            None => {
+                let mut table = [0_u8; 2048];
+                table[index] = value;
+                self._memory.insert(offset, table);
+            }
+        };
+    }
+
     pub fn push_queue(&mut self, address: Bit) {
         let depth = self._branch_delay_cycle;
-        self._pc_queue[depth - 1] = Some(address)
+        self._pc_queue[depth] = Some(address)
     }
 
     pub fn pop_queue(&mut self) -> Option<Bit> {
@@ -97,6 +109,26 @@ impl Status {
         self._pc_queue.push(None);
 
         dest[0].clone()
+    }
+
+    pub fn dump_memory(&self) {
+        let mut sorted_keys = self._memory.keys().collect::<Vec<&usize>>();
+        sorted_keys.sort();
+
+        for &offset in sorted_keys.iter() {
+            let page = self._memory.get(offset).unwrap();
+
+            for index in (0..2048).step_by(16) {
+                if page[index..index + 16].iter().any(|&bin| bin != 0) {
+                    print!("{:08x}: ", (offset << 11) + index);
+                    for i in (index..index + 16) {
+                        print!("{:02x} ", page[i]);
+                        if i % 16 == 7 { print!(" ") }
+                    }
+                    println!();
+                }
+            }
+        }
     }
 }
 

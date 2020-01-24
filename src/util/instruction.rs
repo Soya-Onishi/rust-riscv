@@ -16,10 +16,10 @@ pub struct Instruction {
 
 impl Instruction {
     pub fn new(inst: Bit) -> Result<Instruction, Error> {
-        let opcode_bit = inst.truncate((6, 0))?.as_u8()?;
-        let funct3_bit = inst.truncate((14, 12))?.as_u8()?;
-        let funct7_bit = inst.truncate((31, 25))?.as_u8()?;
-        let funct12_bit = inst.truncate((31, 20))?.as_u32()?;
+        let opcode_bit = inst.truncate((6, 0))?.as_u8();
+        let funct3_bit = inst.truncate((14, 12))?.as_u8();
+        let funct7_bit = inst.truncate((31, 25))?.as_u8();
+        let funct12_bit = inst.truncate((31, 20))?.as_u32();
 
         let (opcode, encode_type) = match opcode_bit {
             0b0110111 => (Opcode::LUI, EncodeType::UType),
@@ -340,7 +340,7 @@ impl Instruction {
     fn slli(&self, status: &mut Status) -> Result<(), Error> {
         self.rs1_imm_ops(status, |rs1, imm| {
             let shamt = imm.truncate((4, 0))?;
-            let value = rs1 << shamt.as_u8()? as usize;
+            let value = rs1 << shamt.as_u8() as usize;
 
             Ok(value)
         })
@@ -348,7 +348,7 @@ impl Instruction {
 
     fn srli(&self, status: &mut Status) -> Result<(), Error> {
         self.rs1_imm_ops(status, |rs1, imm| {
-            let shamt = imm.truncate((4, 0))?.as_u8()? as usize;
+            let shamt = imm.truncate((4, 0))?.as_u8() as usize;
 
             Ok(rs1 >> shamt)
         })
@@ -406,7 +406,7 @@ impl Instruction {
 
     fn sll(&self, status: &mut Status) -> Result<(), Error>{
         self.rs1_rs2_ops(status, |rs1, rs2| {
-            let shamt = rs2.as_u32()? as usize;
+            let shamt = rs2.as_u32() as usize;
 
             Ok(rs1 << shamt)
         })
@@ -414,7 +414,7 @@ impl Instruction {
 
     fn srl(&self, status: &mut Status) -> Result<(), Error> {
         self.rs1_rs2_ops(status, |rs1, rs2| {
-            let shamt = rs2.as_u32()? as usize;
+            let shamt = rs2.as_u32() as usize;
 
             Ok(rs1 >> shamt)
         })
@@ -429,7 +429,19 @@ impl Instruction {
 
     // FENCE, ECALL and EBREAK instruction does not do anything
     fn fence(&self, status: &mut Status) -> Result<(), Error> { Ok(()) }
-    fn ecall(&self, status: &mut Status) -> Result<(), Error> { Ok(()) }
+    fn ecall(&self, status: &mut Status) -> Result<(), Error> {
+        let a0 = status.read_reg_value(Bit::new(10))?.as_u32();
+        let a7 = status.read_reg_value(Bit::new(17))?.as_u32();
+
+        match a0 {
+            1 => println!("{}", a7),
+            10 => std::process::exit(0),
+            _ => panic!("unknown system call value!")
+        };
+
+        Ok(())
+
+    }
     fn ebreak(&self, status: &mut Status) -> Result<(), Error> { Ok(()) }
 
     pub fn exec(&self, status: &mut Status) -> Result<(), Error> {
@@ -494,7 +506,7 @@ fn convert_into_signed_value(value: &Bit) -> Result<BigInt, Error> {
 }
 
 fn arithmetic_right_shift(value: Bit, shamt: Bit) -> Result<Bit, Error> {
-    let shamt = shamt.truncate((4, 0))?.as_u8()? as usize;
+    let shamt = shamt.truncate((4, 0))?.as_u8() as usize;
 
     if value.truncate(31)? == Bit::new(1) && shamt > 0{
         let length = 32_usize - (1 << shamt);
