@@ -1,13 +1,12 @@
 mod decoder;
 
-extern crate bitwise;
-extern crate elf_reader;
+extern crate elf;
 
 use super::util::status::Status;
 use std::fs;
 use std::io;
-use bitwise::*;
-use crate::util::instruction::Instruction;
+use super::util::instruction::Instruction;
+use super::util::bitwise::Bitwise;
 
 pub struct Core {
     status: Status
@@ -27,53 +26,45 @@ impl Core {
 
     fn load(&mut self, filename: String) {
         let binary = fs::read(filename).unwrap();
-
-        let elf = elf_reader::ELF::<u32>::new(binary).unwrap();
-        let sections = elf.section_headers();
-        let data = elf.data();
+        let mut cursor = io::Cursor::new(binary);
+        let elf = elf::File::open_stream(&mut cursor).unwrap();
+        let sections = elf.sections;
         for section in sections.iter() {
-            if section.section_type() == elf_reader::SectionType::ProgBits {
-                let offset = section.file_offset() as usize;
-                let size = section.size() as usize;
-                let target_addr = section.target_addr() as usize;
+            if section.shdr.shtype == elf::types::SHT_PROGBITS {
+                let offset = section.shdr.offset;
+                let size = section.shdr.size;
+                let target_addr = section.shdr.addr;
+                let data = &section.data;
 
-                for (&bin, index) in data[offset..offset + size].iter().zip(0..) {
-                    self.status.write_mem_value_directly(bin, target_addr + index)
+                for (&bin, index) in data.iter().zip(0..) {
+                    self.status.write_mem_value(bin, target_addr + index)
                 }
             }
         }
 
-        self.status.set_pc(Bit::new(elf.header().entry_point()));
+        self.status.pc = elf.ehdr.entry;
     }
 
     fn execute(&mut self) {
         loop {
-            let inst = self.fetch().unwrap();
-            println!("execute: {:08x}", inst.value());
+            let inst = self.fetch();
+            println!("execute: {:08x}", inst);
 
-            let inst = Instruction::new(inst).unwrap();
-            inst.exec(&mut self.status).unwrap();
+            let inst = Instruction::new(inst);
+            inst.exec(&mut self.status);
 
             match self.status.pop_queue() {
-                Some(addr) => self.status.set_pc(addr),
-                None => self.status.set_pc(self.status.get_pc() + Bit::new(4)),
+                Some(addr) => self.status.pc = addr,
+                None => self.status.pc += 4,
             };
         }
     }
 
-    pub fn start(&mut self, pc: Bit) {
-        self.status.set_pc(pc);
-    }
+    fn fetch(&mut self) -> u32 {
+        let bytes = (0..4).map(|i| self.status.pc + i)
+            .map(|addr| self.status.read_mem_value(addr) as u32)
+            .collect::<Vec<u32>>();
 
-    fn fetch(&mut self) -> Result<Bit, errors::Error>{
-        let pc = self.status.get_pc();
-        let addrs = (0..4).map(|i| pc.clone() + Bit::new(i)).rev().collect::<Vec<Bit>>();
-        let bytes = addrs.iter()
-            .map(|addr| self.status.read_mem_value(addr))
-            .collect::<Result<Vec<Bit>, errors::Error>>()?;
-
-        let bytes = bytes.iter().collect();
-
-        Bit::concat(bytes)
+        Bitwise::concat(&bytes, &[8; 4])
     }
 }

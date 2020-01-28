@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 num-bigint = "0.2.5"
 bitwise = { git = "https://github.com/Soya-Onishi/rust-bitwise.git" }
-elf-reader = { git = "https://github.com/Soya-Onishi/elf_reader.git" }
+elf = "0.0.10"
 
 [dev-dependencies]
 rand = "0.7"
