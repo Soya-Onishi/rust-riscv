@@ -1,7 +1,14 @@
 mod core;
 mod util;
 
+use std::env;
+
 fn main() {
-    let mut core = core::Core::new(0);
-    core.load_and_run("rv32ui-p-lw".to_string());
+    let args: Vec<String> = env::args().collect();
+
+    for filename in args[1..].iter() {
+        println!("run: {}", &filename);
+        let mut core = core::Core::new(0);
+        core.load_and_run(filename.clone());
+    }
 }

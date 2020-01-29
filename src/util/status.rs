@@ -6,6 +6,7 @@ pub struct Status {
     memory: HashMap<usize, [u8; 2048]>,
     branch_delay_cycle: usize,
     pc_queue: Vec<Option<u32>>,
+    terminate: bool,
 }
 
 impl Status {
@@ -16,8 +17,12 @@ impl Status {
             memory: HashMap::new(),
             iregs: [0; 32],
             branch_delay_cycle: delay_cycle,
+            terminate: false,
         }
     }
+
+    pub fn terminate_cpu(&mut self) { self.terminate = true; }
+    pub fn is_terminate(&self) -> bool { self.terminate }
 
     pub fn read_reg_value(&self, index: usize) -> u32 {
         self.iregs[index]

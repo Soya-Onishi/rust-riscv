@@ -193,14 +193,14 @@ impl Instruction {
 
     fn auipc(&self, status: &mut Status) {
         status.write_reg_value(
-            self.imm() + status.pc,
+            self.imm().wrapping_add(status.pc),
             self.rd(),
         )
     }
 
     fn jal(&self, status: &mut Status) {
-        let dest = self.imm() + status.pc;
-        let next_pc = status.pc + 4;
+        let dest = self.imm().wrapping_add(status.pc);
+        let next_pc = status.pc.wrapping_add(4);
 
         status.push_queue(dest);
         status.write_reg_value(next_pc, self.rd())
@@ -208,8 +208,8 @@ impl Instruction {
 
     fn jalr(&self, status: &mut Status) {
         let rs1_value = status.read_reg_value(self.rs1());
-        let dest = self.imm().wrapping_add(rs1_value).wrapping_add(status.pc);
-        let next_pc = status.pc + 4;
+        let dest = self.imm().wrapping_add(rs1_value) & (std::u32::MAX ^ 1);
+        let next_pc = status.pc.wrapping_add(4);
 
         status.push_queue(dest);
         status.write_reg_value(next_pc, self.rd())
@@ -234,16 +234,16 @@ impl Instruction {
     fn bne(&self, status: &mut Status) { self.branch(status, |a, b| a != b) }
     fn blt(&self, status: &mut Status) {
         self.branch(status, |a, b| {
-            let a = a as i64;
-            let b = b as i64;
+            let a = a as i32;
+            let b = b as i32;
 
             a < b
         })
     }
     fn bge(&self, status: &mut Status) {
         self.branch(status, |a, b| {
-            let a = a as i64;
-            let b = b as i64;
+            let a = a as i32;
+            let b = b as i32;
 
             a >= b
         })
@@ -390,20 +390,20 @@ impl Instruction {
 
     fn sll(&self, status: &mut Status) {
         self.rs1_rs2_ops(status, |rs1, rs2| {
-            rs1 << rs2
+            rs1 << rs2.truncate(4, 0)
         })
     }
 
     fn srl(&self, status: &mut Status) {
         self.rs1_rs2_ops(status, |rs1, rs2| {
-            rs1 >> rs2
+            rs1 >> rs2.truncate(4, 0)
         })
     }
 
     fn sra(&self, status: &mut Status) {
         self.rs1_rs2_ops(
             status,
-            |rs1, rs2| arithmetic_right_shift(rs1, rs2)
+            |rs1, rs2| arithmetic_right_shift(rs1, rs2.truncate(4, 0))
         )
     }
 
@@ -414,9 +414,9 @@ impl Instruction {
         let a7 = status.read_reg_value(17);
 
         match a0 {
-            1 => println!("{}", a7),
-            10 => std::process::exit(0),
-            _ => panic!("unknown system call value!")
+             1 => println!("{}", a7),
+            10 => status.terminate_cpu(),
+             _ => panic!("unknown system call value!")
         };
     }
     fn ebreak(&self, status: &mut Status) { }
@@ -475,9 +475,9 @@ fn arithmetic_right_shift(value: u32, shamt: u32) -> u32 {
     let shamt = shamt.truncate(4, 0);
 
     if value.extract(31) == 1 {
-        let length = 32 - (1 << shamt);
+        let length = 32 - shamt;
         let ones = std::u32::MAX as u32;
-        let mask = (1 << length) - 1;
+        let mask = 1_u32.checked_shl(length).unwrap_or(0).wrapping_sub(1);
 
         (value >> shamt) | (mask ^ ones)
     } else {

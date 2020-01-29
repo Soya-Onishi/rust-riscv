@@ -56,6 +56,8 @@ impl Core {
                 Some(addr) => self.status.pc = addr,
                 None => self.status.pc += 4,
             };
+
+            if self.status.is_terminate() { break }
         }
     }
 
