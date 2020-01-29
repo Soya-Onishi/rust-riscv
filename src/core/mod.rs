@@ -31,9 +31,9 @@ impl Core {
         let sections = elf.sections;
         for section in sections.iter() {
             if section.shdr.shtype == elf::types::SHT_PROGBITS {
-                let offset = section.shdr.offset;
-                let size = section.shdr.size;
-                let target_addr = section.shdr.addr;
+                let offset = section.shdr.offset as u32;
+                let size = section.shdr.size as u32;
+                let target_addr = section.shdr.addr as u32;
                 let data = &section.data;
 
                 for (&bin, index) in data.iter().zip(0..) {
@@ -42,13 +42,12 @@ impl Core {
             }
         }
 
-        self.status.pc = elf.ehdr.entry;
+        self.status.pc = elf.ehdr.entry as u32;
     }
 
     fn execute(&mut self) {
         loop {
             let inst = self.fetch();
-            println!("execute: {:08x}", inst);
 
             let inst = Instruction::new(inst);
             inst.exec(&mut self.status);

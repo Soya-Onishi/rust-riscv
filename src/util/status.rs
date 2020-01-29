@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 pub struct Status {
-    pub pc: u64,
-    iregs: [u64; 32],
+    pub pc: u32,
+    iregs: [u32; 32],
     memory: HashMap<usize, [u8; 2048]>,
     branch_delay_cycle: usize,
-    pc_queue: Vec<Option<u64>>,
+    pc_queue: Vec<Option<u32>>,
 }
 
 impl Status {
@@ -19,17 +19,17 @@ impl Status {
         }
     }
 
-    pub fn read_reg_value(&self, index: usize) -> u64 {
+    pub fn read_reg_value(&self, index: usize) -> u32 {
         self.iregs[index]
     }
 
-    pub fn write_reg_value(&mut self, value: u64, index: usize) {
+    pub fn write_reg_value(&mut self, value: u32, index: usize) {
         if index != 0 {
             self.iregs[index] = value;
         }
     }
 
-    pub fn read_mem_value(&self, address: u64) -> u8 {
+    pub fn read_mem_value(&self, address: u32) -> u8 {
         let (offset, index) = separate_addr(address);
 
          match self.memory.get(&offset) {
@@ -38,7 +38,7 @@ impl Status {
         }
     }
 
-    pub fn write_mem_value(&mut self, value: u8, address: u64) {
+    pub fn write_mem_value(&mut self, value: u8, address: u32) {
         let (offset, index) = separate_addr(address);
         match self.memory.get_mut(&offset) {
             Some(table) => table[index] = value,
@@ -50,12 +50,12 @@ impl Status {
         }
     }
 
-    pub fn push_queue(&mut self, address: u64) {
+    pub fn push_queue(&mut self, address: u32) {
         let depth = self.branch_delay_cycle;
         self.pc_queue[depth] = Some(address)
     }
 
-    pub fn pop_queue(&mut self) -> Option<u64> {
+    pub fn pop_queue(&mut self) -> Option<u32> {
         let queue = self.pc_queue.clone();
         let (dest, remains) = queue.split_at(1);
         self.pc_queue = remains.to_vec();
@@ -85,7 +85,7 @@ impl Status {
     }
 }
 
-fn separate_addr(address: u64) -> (usize, usize) {
+fn separate_addr(address: u32) -> (usize, usize) {
     let offset = address >> 11;
     let index = address & ((1 << 11) - 1);
 

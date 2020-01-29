@@ -133,22 +133,22 @@ impl Instruction {
         }
     }
 
-    fn imm(&self) -> u64 {
+    fn imm(&self) -> u32 {
         match self.encode_type {
             EncodeType::RType =>
                 panic!(make_panic_msg(EncodeType::RType, "imm")),
             EncodeType::IType => {
-                let truncated = self.raw_code.truncate(31, 20) as u64;
+                let truncated = self.raw_code.truncate(31, 20) as u32;
                 truncated.sign_ext(11)
             }
             EncodeType::SType => {
-                let upper = self.raw_code.truncate(31, 25) as u64;
-                let lower = self.raw_code.truncate(11, 7) as u64;
+                let upper = self.raw_code.truncate(31, 25) as u32;
+                let lower = self.raw_code.truncate(11, 7) as u32;
 
                 Bitwise::concat(&[lower, upper], &[5, 7]).sign_ext(11)
             }
             EncodeType::BType => {
-                let raw_code = self.raw_code as u64;
+                let raw_code = self.raw_code as u32;
                 let bit12 = raw_code.extract(31);
                 let bit11 = raw_code.extract(7);
                 let bit10_5 = raw_code.truncate(30, 25);
@@ -161,14 +161,14 @@ impl Instruction {
                 ).sign_ext(12)
             }
             EncodeType::UType => {
-                let raw_code = self.raw_code as u64;
+                let raw_code = self.raw_code as u32;
                 let bit31_12 = raw_code.truncate(31, 12);
                 let bit11_0 = 0;
 
                 Bitwise::concat(&[bit11_0, bit31_12], &[12, 20]).sign_ext(31)
             }
             EncodeType::JType => {
-                let raw_code = self.raw_code as u64;
+                let raw_code = self.raw_code as u32;
                 let bit20 = raw_code.extract(31);
                 let bit19_12 = raw_code.truncate(19, 12);
                 let bit11 = raw_code.extract(20);
@@ -216,7 +216,7 @@ impl Instruction {
     }
 
     // execute branch instruction operation
-    fn branch(&self, status: &mut Status, f: impl Fn(u64, u64) -> bool) {
+    fn branch(&self, status: &mut Status, f: impl Fn(u32, u32) -> bool) {
         let rs1_value = status.read_reg_value(self.rs1());
         let rs2_value = status.read_reg_value(self.rs2());
 
@@ -251,16 +251,16 @@ impl Instruction {
     fn bltu(&self, status: &mut Status) { self.branch(status, |a, b| a < b) }
     fn bgeu(&self, status: &mut Status) { self.branch(status, |a, b| a >= b) }
 
-    fn load(&self, status: &mut Status, byte_count: u64, use_sign_ext: bool) {
+    fn load(&self, status: &mut Status, byte_count: u32, use_sign_ext: bool) {
         let base_addr = status.read_reg_value(self.rs1()).wrapping_add(self.imm());
         let data = (0..byte_count).map(|offset| {
-            status.read_mem_value(base_addr.wrapping_add(offset)) as u64
-        }).collect::<Vec<u64>>();
+            status.read_mem_value(base_addr.wrapping_add(offset)) as u32
+        }).collect::<Vec<u32>>();
 
 
         let data = Bitwise::concat(&data, &vec![8; byte_count as usize]);
         let data =
-            if use_sign_ext { data.sign_ext(8 * byte_count as u64 - 1) }
+            if use_sign_ext { data.sign_ext(8 * byte_count as u32 - 1) }
             else            { data };
 
         status.write_reg_value(data, self.rd());
@@ -272,7 +272,7 @@ impl Instruction {
     fn lbu(&self, status: &mut Status) { self.load(status, 1, false) }
     fn lhu(&self, status: &mut Status) { self.load(status, 2, false) }
 
-    fn store(&self, status: &mut Status, byte_size: u64) {
+    fn store(&self, status: &mut Status, byte_size: u32) {
         let addr = status.read_reg_value(self.rs1()).wrapping_add(self.imm());
         let data = status.read_reg_value(self.rs2());
         (0..byte_size)
@@ -285,7 +285,7 @@ impl Instruction {
     fn sh(&self, status: &mut Status) { self.store(status, 2) }
     fn sw(&self, status: &mut Status) { self.store(status, 4) }
 
-    fn rs1_imm_ops(&self, status: &mut Status, f: impl Fn(u64, u64) -> u64) {
+    fn rs1_imm_ops(&self, status: &mut Status, f: impl Fn(u32, u32) -> u32) {
         let rs1_value = status.read_reg_value(self.rs1());
         let imm_value = self.imm();
         let result = f(rs1_value, imm_value);
@@ -299,16 +299,16 @@ impl Instruction {
 
     fn slti(&self, status: &mut Status) {
         self.rs1_imm_ops(status, |rs1, imm| {
-            let rs1 = rs1 as i64;
-            let imm = imm as i64;
+            let rs1 = rs1 as i32;
+            let imm = imm as i32;
 
-            (rs1 < imm) as u64
+            (rs1 < imm) as u32
         })
     }
 
     fn sltiu(&self, status: &mut Status) {
         self.rs1_imm_ops(status, |rs1, imm| {
-            (rs1 < imm) as u64
+            (rs1 < imm) as u32
         })
     }
 
@@ -345,7 +345,7 @@ impl Instruction {
         )
     }
 
-    fn rs1_rs2_ops(&self, status: &mut Status, f: impl Fn(u64, u64) -> u64) {
+    fn rs1_rs2_ops(&self, status: &mut Status, f: impl Fn(u32, u32) -> u32) {
         let rs1_value = status.read_reg_value(self.rs1());
         let rs2_value = status.read_reg_value(self.rs2());
         let result = f(rs1_value, rs2_value);
@@ -375,16 +375,16 @@ impl Instruction {
 
     fn slt(&self, status: &mut Status) {
         self.rs1_rs2_ops(status, |rs1, rs2| {
-            let rs1 = rs1 as i64;
-            let rs2 = rs2 as i64;
+            let rs1 = rs1 as i32;
+            let rs2 = rs2 as i32;
 
-            (rs1 < rs2) as u64
+            (rs1 < rs2) as u32
         })
     }
 
     fn sltu(&self, status: &mut Status) {
         self.rs1_rs2_ops(status, |rs1, rs2| {
-            (rs1 < rs2) as u64
+            (rs1 < rs2) as u32
         })
     }
 
@@ -471,12 +471,12 @@ fn make_panic_msg(name: EncodeType, field: &str) -> String {
     format!("{} does not have {} field", name, field)
 }
 
-fn arithmetic_right_shift(value: u64, shamt: u64) -> u64 {
+fn arithmetic_right_shift(value: u32, shamt: u32) -> u32 {
     let shamt = shamt.truncate(4, 0);
 
     if value.extract(31) == 1 {
         let length = 32 - (1 << shamt);
-        let ones = std::u32::MAX as u64;
+        let ones = std::u32::MAX as u32;
         let mask = (1 << length) - 1;
 
         (value >> shamt) | (mask ^ ones)
