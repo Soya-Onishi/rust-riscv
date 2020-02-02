@@ -8,7 +8,7 @@ fn main() {
 
     for filename in args[1..].iter() {
         println!("run: {}", &filename);
-        let mut core = core::Core::new(0);
+        let mut core = core::Core::new(0, true);
         core.load_and_run(filename.clone());
     }
 }

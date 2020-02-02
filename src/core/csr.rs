@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+
 use super::Bitwise;
 use crate::util::exception::Exception;
+
 
 pub struct CSRFile {
     csrs: HashMap<usize, u32>,

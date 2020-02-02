@@ -1,4 +1,3 @@
-use super::status::Status;
 use super::super::core::csr::*;
 
 #[derive(Debug, Clone, Copy)]
@@ -38,10 +37,6 @@ pub enum Exception {
 
 use Exception::*;
 impl Exception {
-    pub fn raise_exception(self, status: &mut Status) {
-
-    }
-
     pub fn get_exception_code(self) -> u32 {
         use Exception::*;
 
