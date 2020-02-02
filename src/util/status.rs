@@ -24,17 +24,17 @@ impl Status {
     pub fn terminate_cpu(&mut self) { self.terminate = true; }
     pub fn is_terminate(&self) -> bool { self.terminate }
 
-    pub fn read_reg_value(&self, index: usize) -> u32 {
+    pub fn read_reg(&self, index: usize) -> u32 {
         self.iregs[index]
     }
 
-    pub fn write_reg_value(&mut self, value: u32, index: usize) {
+    pub fn write_reg(&mut self, value: u32, index: usize) {
         if index != 0 {
             self.iregs[index] = value;
         }
     }
 
-    pub fn read_mem_value(&self, address: u32) -> u8 {
+    pub fn read_mem(&self, address: u32) -> u8 {
         let (offset, index) = separate_addr(address);
 
          match self.memory.get(&offset) {
@@ -43,7 +43,7 @@ impl Status {
         }
     }
 
-    pub fn write_mem_value(&mut self, value: u8, address: u32) {
+    pub fn write_mem(&mut self, value: u8, address: u32) {
         let (offset, index) = separate_addr(address);
         match self.memory.get_mut(&offset) {
             Some(table) => table[index] = value,
@@ -117,9 +117,9 @@ mod test {
             let index = rng.gen_range(0, 31);
             let value = rng.gen::<u64>();
 
-            status.write_reg_value(value, index);
+            status.write_reg(value, index);
 
-            let v = status.read_reg_value(index);
+            let v = status.read_reg(index);
 
             if index == 0 { assert_eq!(v, 0); }
             else          { assert_eq!(v, value); }

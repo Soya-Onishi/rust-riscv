@@ -1,4 +1,5 @@
 mod decoder;
+mod csr;
 
 extern crate elf;
 
@@ -37,7 +38,7 @@ impl Core {
                 let data = &section.data;
 
                 for (&bin, index) in data.iter().zip(0..) {
-                    self.status.write_mem_value(bin, target_addr + index)
+                    self.status.write_mem(bin, target_addr + index)
                 }
             }
         }
@@ -63,7 +64,7 @@ impl Core {
 
     fn fetch(&mut self) -> u32 {
         let bytes = (0..4).map(|i| self.status.pc + i)
-            .map(|addr| self.status.read_mem_value(addr) as u32)
+            .map(|addr| self.status.read_mem(addr) as u32)
             .collect::<Vec<u32>>();
 
         Bitwise::concat(&bytes, &[8; 4])

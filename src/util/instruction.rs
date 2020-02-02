@@ -96,8 +96,20 @@ impl Instruction {
                 (opcode, EncodeType::RType)
             }
             0b0001111 if funct3  == 0b000            => (Opcode::FENCE, EncodeType::IType),
-            0b1110011 if funct12 == 0b0000_0000_0000 => (Opcode::ECALL, EncodeType::IType),
-            0b1110011 if funct12 == 0b0000_0000_0001 => (Opcode::EBREAK, EncodeType::IType),
+            0b1110011 if inst.truncate(19, 7) == 0 => match funct12 {
+                0b0000_0000_0000 => (Opcode::ECALL, EncodeType::IType),
+                0b0000_0000_0001 => (Opcode::EBREAK, EncodeType::IType),
+                _ => panic!("unexpected pattern match"),
+            }
+            0b1110011 => match funct3 {
+                0b001 => (Opcode::CSRRW, EncodeType::IType),
+                0b010 => (Opcode::CSRRS, EncodeType::IType),
+                0b011 => (Opcode::CSRRC, EncodeType::IType),
+                0b101 => (Opcode::CSRRWI, EncodeType::IType),
+                0b110 => (Opcode::CSRRSI, EncodeType::IType),
+                0b111 => (Opcode::CSRRCI, EncodeType::IType),
+                _     => panic!("unexpected pattern match"),
+            }
             _ => panic!("invalid instruction code: {:08x}", inst),
         };
 
@@ -185,14 +197,14 @@ impl Instruction {
     }
 
     fn lui(&self, status: &mut Status) {
-        status.write_reg_value(
+        status.write_reg(
             self.imm(),
             self.rd(),
         )
     }
 
     fn auipc(&self, status: &mut Status) {
-        status.write_reg_value(
+        status.write_reg(
             self.imm().wrapping_add(status.pc),
             self.rd(),
         )
@@ -203,22 +215,22 @@ impl Instruction {
         let next_pc = status.pc.wrapping_add(4);
 
         status.push_queue(dest);
-        status.write_reg_value(next_pc, self.rd())
+        status.write_reg(next_pc, self.rd())
     }
 
     fn jalr(&self, status: &mut Status) {
-        let rs1_value = status.read_reg_value(self.rs1());
+        let rs1_value = status.read_reg(self.rs1());
         let dest = self.imm().wrapping_add(rs1_value) & (std::u32::MAX ^ 1);
         let next_pc = status.pc.wrapping_add(4);
 
         status.push_queue(dest);
-        status.write_reg_value(next_pc, self.rd())
+        status.write_reg(next_pc, self.rd())
     }
 
     // execute branch instruction operation
     fn branch(&self, status: &mut Status, f: impl Fn(u32, u32) -> bool) {
-        let rs1_value = status.read_reg_value(self.rs1());
-        let rs2_value = status.read_reg_value(self.rs2());
+        let rs1_value = status.read_reg(self.rs1());
+        let rs2_value = status.read_reg(self.rs2());
 
         let branch_dest =
             if f(rs1_value, rs2_value) {
@@ -252,9 +264,9 @@ impl Instruction {
     fn bgeu(&self, status: &mut Status) { self.branch(status, |a, b| a >= b) }
 
     fn load(&self, status: &mut Status, byte_count: u32, use_sign_ext: bool) {
-        let base_addr = status.read_reg_value(self.rs1()).wrapping_add(self.imm());
+        let base_addr = status.read_reg(self.rs1()).wrapping_add(self.imm());
         let data = (0..byte_count).map(|offset| {
-            status.read_mem_value(base_addr.wrapping_add(offset)) as u32
+            status.read_mem(base_addr.wrapping_add(offset)) as u32
         }).collect::<Vec<u32>>();
 
 
@@ -263,7 +275,7 @@ impl Instruction {
             if use_sign_ext { data.sign_ext(8 * byte_count as u32 - 1) }
             else            { data };
 
-        status.write_reg_value(data, self.rd());
+        status.write_reg(data, self.rd());
     }
 
     fn lb(&self, status: &mut Status)  { self.load(status, 1, true) }
@@ -273,12 +285,12 @@ impl Instruction {
     fn lhu(&self, status: &mut Status) { self.load(status, 2, false) }
 
     fn store(&self, status: &mut Status, byte_size: u32) {
-        let addr = status.read_reg_value(self.rs1()).wrapping_add(self.imm());
-        let data = status.read_reg_value(self.rs2());
+        let addr = status.read_reg(self.rs1()).wrapping_add(self.imm());
+        let data = status.read_reg(self.rs2());
         (0..byte_size)
             .map(|index| data.truncate((index + 1) * 8 - 1, index * 8) as u8)
             .zip(0..)
-            .for_each(|(data, index)| status.write_mem_value(data, addr.wrapping_add(index)));
+            .for_each(|(data, index)| status.write_mem(data, addr.wrapping_add(index)));
     }
 
     fn sb(&self, status: &mut Status) { self.store(status, 1) }
@@ -286,11 +298,11 @@ impl Instruction {
     fn sw(&self, status: &mut Status) { self.store(status, 4) }
 
     fn rs1_imm_ops(&self, status: &mut Status, f: impl Fn(u32, u32) -> u32) {
-        let rs1_value = status.read_reg_value(self.rs1());
+        let rs1_value = status.read_reg(self.rs1());
         let imm_value = self.imm();
         let result = f(rs1_value, imm_value);
 
-        status.write_reg_value(result, self.rd())
+        status.write_reg(result, self.rd())
     }
 
     fn addi(&self, status: &mut Status) {
@@ -346,11 +358,11 @@ impl Instruction {
     }
 
     fn rs1_rs2_ops(&self, status: &mut Status, f: impl Fn(u32, u32) -> u32) {
-        let rs1_value = status.read_reg_value(self.rs1());
-        let rs2_value = status.read_reg_value(self.rs2());
+        let rs1_value = status.read_reg(self.rs1());
+        let rs2_value = status.read_reg(self.rs2());
         let result = f(rs1_value, rs2_value);
 
-        status.write_reg_value(result, self.rd())
+        status.write_reg(result, self.rd())
     }
 
     fn add(&self, status: &mut Status) {
@@ -407,11 +419,52 @@ impl Instruction {
         )
     }
 
+    fn csrrw(&self, status: &mut Status) {
+        let addr = self.imm().truncate(11, 0) as usize;
+        let rs1 = status.read_reg(self.rs1());
+        let csr = panic!();
+
+        status.write_reg(csr, self.rd());
+        status.write_csr
+    }
+
+    fn csrrs(&self, status: &mut Status) {
+
+    }
+
+    fn csrrc(&self, status: &mut Status) {
+
+    }
+
+    fn csrrwi(&self, status: &mut Status) {
+
+    }
+
+    fn csrrsi(&self, status: &mut Status) {
+
+    }
+
+    fn csrrci(&self, status: &mut Status) {
+
+    }
+
+    fn manipulate_csr(
+        &self,
+        status: &mut Status,
+        addr: usize,
+        rs1: usize,
+        rd: usize,
+        read: impl Fn(usize) -> u32,
+        write: impl Fn(usize, u32) -> ()
+    ) {
+
+    }
+
     // FENCE, ECALL and EBREAK instruction does not do anything
     fn fence(&self, status: &mut Status) { }
     fn ecall(&self, status: &mut Status) {
-        let a0 = status.read_reg_value(10);
-        let a7 = status.read_reg_value(17);
+        let a0 = status.read_reg(10);
+        let a7 = status.read_reg(17);
 
         match a0 {
              1 => println!("{}", a7),
@@ -463,6 +516,12 @@ impl Instruction {
             Opcode::FENCE => self.fence(status),
             Opcode::ECALL => self.ecall(status),
             Opcode::EBREAK => self.ebreak(status),
+            Opcode::CSRRW => ,
+            Opcode::CSRRS =>,
+            Opcode::CSRRC =>,
+            Opcode::CSRRWI =>,
+            Opcode::CSRRSI =>,
+            Opcode::CSRRCI =>,
         }
     }
 }
@@ -543,6 +602,12 @@ enum Opcode {
     FENCE,
     ECALL,
     EBREAK,
+    CSRRW,
+    CSRRS,
+    CSRRC,
+    CSRRWI,
+    CSRRSI,
+    CSRRCI,
 }
 /*
 #[cfg(test)]
