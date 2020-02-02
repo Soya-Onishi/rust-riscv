@@ -1,12 +1,15 @@
 use std::collections::HashMap;
+use super::exception::Exception;
+use super::super::core::csr::CSRFile;
 
 pub struct Status {
     pub pc: u32,
     iregs: [u32; 32],
+    pub csr: CSRFile,
     memory: HashMap<usize, [u8; 2048]>,
     branch_delay_cycle: usize,
     pc_queue: Vec<Option<u32>>,
-    terminate: bool,
+    pub built_in_ecall: bool
 }
 
 impl Status {
@@ -16,13 +19,11 @@ impl Status {
             pc_queue: vec![None; delay_cycle + 1],
             memory: HashMap::new(),
             iregs: [0; 32],
+            csr: CSRFile::new(),
             branch_delay_cycle: delay_cycle,
-            terminate: false,
+            built_in_ecall: true,
         }
     }
-
-    pub fn terminate_cpu(&mut self) { self.terminate = true; }
-    pub fn is_terminate(&self) -> bool { self.terminate }
 
     pub fn read_reg(&self, index: usize) -> u32 {
         self.iregs[index]
@@ -69,6 +70,10 @@ impl Status {
         dest[0].clone()
     }
 
+    pub fn flush_queue(&mut self) {
+        self.pc_queue = vec![None; self.pc_queue.len()];
+    }
+
     pub fn dump_memory(&self) {
         let mut sorted_keys = self.memory.keys().collect::<Vec<&usize>>();
         sorted_keys.sort();
@@ -99,7 +104,6 @@ fn separate_addr(address: u32) -> (usize, usize) {
 
 #[cfg(test)]
 mod test {
-    extern crate bitwise;
     extern crate rand;
 
     use super::Status;
@@ -115,7 +119,7 @@ mod test {
 
         for _ in 0..1000 {
             let index = rng.gen_range(0, 31);
-            let value = rng.gen::<u64>();
+            let value = rng.gen::<u32>();
 
             status.write_reg(value, index);
 

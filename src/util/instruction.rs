@@ -2,6 +2,7 @@ extern crate num_bigint;
 
 use super::status::Status;
 use super::bitwise::Bitwise;
+use super::exception::Exception;
 
 use std::fmt;
 use num_bigint::{Sign, BigInt};
@@ -13,7 +14,7 @@ pub struct Instruction {
 }
 
 impl Instruction {
-    pub fn new(inst: u32) -> Instruction {
+    pub fn new(inst: u32) -> Result<Instruction, Exception> {
         let opcode = inst.truncate(6, 0);
         let funct3 = inst.truncate(14, 12);
         let funct7 = inst.truncate(31, 25);
@@ -25,7 +26,7 @@ impl Instruction {
             0b1101111 => (Opcode::JAL, EncodeType::JType),
             0b1100111 => match funct3 {
                 0b000 => (Opcode::JALR, EncodeType::IType),
-                _     => panic!("unexpected pattern match"),
+                _     => Err(Exception::IllegalInstruction(inst))?,
             },
             0b1100011 => {
                 let opcode = match funct3 {
@@ -35,7 +36,7 @@ impl Instruction {
                     0b101 => Opcode::BGE,
                     0b110 => Opcode::BLTU,
                     0b111 => Opcode::BGEU,
-                    _ => panic!("unexpected pattern match"),
+                    _     => Err(Exception::IllegalInstruction(inst))?,
                 };
 
                 (opcode, EncodeType::BType)
@@ -47,7 +48,7 @@ impl Instruction {
                     0b010 => Opcode::LW,
                     0b100 => Opcode::LBU,
                     0b101 => Opcode::LHU,
-                    _ => panic!("unexpected pattern match"),
+                        _ => Err(Exception::IllegalInstruction(inst))?,
                 };
 
                 (opcode, EncodeType::IType)
@@ -57,7 +58,7 @@ impl Instruction {
                     0b000 => Opcode::SB,
                     0b001 => Opcode::SH,
                     0b010 => Opcode::SW,
-                    _ => panic!("unexpected pattern match"),
+                        _ => Err(Exception::IllegalInstruction(inst))?,
                 };
 
                 (opcode, EncodeType::SType)
@@ -73,7 +74,7 @@ impl Instruction {
                     0b001 if funct7 == 0b000_0000 => Opcode::SLLI,
                     0b101 if funct7 == 0b000_0000 => Opcode::SRLI,
                     0b101 if funct7 == 0b010_0000 => Opcode::SRAI,
-                    _ => panic!("unexpected pattern match"),
+                        _ => Err(Exception::IllegalInstruction(inst))?,
                 };
 
                 (opcode, EncodeType::IType)
@@ -90,16 +91,16 @@ impl Instruction {
                     0b101 if funct7 == 0b010_0000 => Opcode::SRA,
                     0b110 if funct7 == 0b000_0000 => Opcode::OR,
                     0b111 if funct7 == 0b000_0000 => Opcode::AND,
-                    _ => panic!("unexpected pattern match"),
+                        _ => Err(Exception::IllegalInstruction(inst))?,
                 };
 
                 (opcode, EncodeType::RType)
             }
-            0b0001111 if funct3  == 0b000            => (Opcode::FENCE, EncodeType::IType),
+            0b0001111 if funct3  == 0b000 => (Opcode::FENCE, EncodeType::IType),
             0b1110011 if inst.truncate(19, 7) == 0 => match funct12 {
                 0b0000_0000_0000 => (Opcode::ECALL, EncodeType::IType),
                 0b0000_0000_0001 => (Opcode::EBREAK, EncodeType::IType),
-                _ => panic!("unexpected pattern match"),
+                               _ => Err(Exception::IllegalInstruction(inst))?,
             }
             0b1110011 => match funct3 {
                 0b001 => (Opcode::CSRRW, EncodeType::IType),
@@ -108,12 +109,12 @@ impl Instruction {
                 0b101 => (Opcode::CSRRWI, EncodeType::IType),
                 0b110 => (Opcode::CSRRSI, EncodeType::IType),
                 0b111 => (Opcode::CSRRCI, EncodeType::IType),
-                _     => panic!("unexpected pattern match"),
+                    _ => Err(Exception::IllegalInstruction(inst))?,
             }
-            _ => panic!("invalid instruction code: {:08x}", inst),
+            _ => Err(Exception::IllegalInstruction(inst))?,
         };
 
-        Instruction { raw_code: inst, opcode, encode_type }
+        Ok(Instruction { raw_code: inst, opcode, encode_type })
     }
 
     fn rs1(&self) -> usize {
@@ -196,39 +197,47 @@ impl Instruction {
         }
     }
 
-    fn lui(&self, status: &mut Status) {
+    fn lui(&self, status: &mut Status) -> Result<(), Exception> {
         status.write_reg(
             self.imm(),
             self.rd(),
-        )
+        );
+
+        Ok(())
     }
 
-    fn auipc(&self, status: &mut Status) {
+    fn auipc(&self, status: &mut Status) -> Result<(), Exception> {
         status.write_reg(
             self.imm().wrapping_add(status.pc),
             self.rd(),
-        )
+        );
+
+        Ok(())
     }
 
-    fn jal(&self, status: &mut Status) {
+    fn jal(&self, status: &mut Status) -> Result<(), Exception> {
         let dest = self.imm().wrapping_add(status.pc);
         let next_pc = status.pc.wrapping_add(4);
 
         status.push_queue(dest);
-        status.write_reg(next_pc, self.rd())
+        status.write_reg(next_pc, self.rd());
+
+        Ok(())
     }
 
-    fn jalr(&self, status: &mut Status) {
+    fn jalr(&self, status: &mut Status) -> Result<(), Exception>{
         let rs1_value = status.read_reg(self.rs1());
         let dest = self.imm().wrapping_add(rs1_value) & (std::u32::MAX ^ 1);
         let next_pc = status.pc.wrapping_add(4);
 
         status.push_queue(dest);
-        status.write_reg(next_pc, self.rd())
+        status.write_reg(next_pc, self.rd());
+
+        Ok(())
     }
 
     // execute branch instruction operation
-    fn branch(&self, status: &mut Status, f: impl Fn(u32, u32) -> bool) {
+    fn branch(&self, status: &mut Status, f: impl Fn(u32, u32) -> bool) -> Result<(), Exception> {
         let rs1_value = status.read_reg(self.rs1());
         let rs2_value = status.read_reg(self.rs2());
 
@@ -240,11 +249,13 @@ impl Instruction {
             };
 
         status.push_queue(branch_dest);
+
+        Ok(())
     }
 
-    fn beq(&self, status: &mut Status) { self.branch(status, |a, b| a == b) }
-    fn bne(&self, status: &mut Status) { self.branch(status, |a, b| a != b) }
-    fn blt(&self, status: &mut Status) {
+    fn beq(&self, status: &mut Status) -> Result<(), Exception> { self.branch(status, |a, b| a == b) }
+    fn bne(&self, status: &mut Status) -> Result<(), Exception> { self.branch(status, |a, b| a != b) }
+    fn blt(&self, status: &mut Status) -> Result<(), Exception> {
         self.branch(status, |a, b| {
             let a = a as i32;
             let b = b as i32;
@@ -252,7 +263,7 @@ impl Instruction {
             a < b
         })
     }
-    fn bge(&self, status: &mut Status) {
+    fn bge(&self, status: &mut Status) -> Result<(), Exception> {
         self.branch(status, |a, b| {
             let a = a as i32;
             let b = b as i32;
@@ -260,10 +271,10 @@ impl Instruction {
             a >= b
         })
     }
-    fn bltu(&self, status: &mut Status) { self.branch(status, |a, b| a < b) }
-    fn bgeu(&self, status: &mut Status) { self.branch(status, |a, b| a >= b) }
+    fn bltu(&self, status: &mut Status) -> Result<(), Exception> { self.branch(status, |a, b| a < b) }
+    fn bgeu(&self, status: &mut Status) -> Result<(), Exception> { self.branch(status, |a, b| a >= b) }
 
-    fn load(&self, status: &mut Status, byte_count: u32, use_sign_ext: bool) {
+    fn load(&self, status: &mut Status, byte_count: u32, use_sign_ext: bool) -> Result<(), Exception> {
         let base_addr = status.read_reg(self.rs1()).wrapping_add(self.imm());
         let data = (0..byte_count).map(|offset| {
             status.read_mem(base_addr.wrapping_add(offset)) as u32
@@ -276,40 +287,45 @@ impl Instruction {
             else            { data };
 
         status.write_reg(data, self.rd());
+        Ok(())
     }
 
-    fn lb(&self, status: &mut Status)  { self.load(status, 1, true) }
-    fn lh(&self, status: &mut Status)  { self.load(status, 2, true) }
-    fn lw(&self, status: &mut Status)  { self.load(status, 4, true) }
-    fn lbu(&self, status: &mut Status) { self.load(status, 1, false) }
-    fn lhu(&self, status: &mut Status) { self.load(status, 2, false) }
+    fn lb(&self, status: &mut Status) -> Result<(), Exception> { self.load(status, 1, true) }
+    fn lh(&self, status: &mut Status) -> Result<(), Exception> { self.load(status, 2, true) }
+    fn lw(&self, status: &mut Status) -> Result<(), Exception> { self.load(status, 4, true) }
+    fn lbu(&self, status: &mut Status) -> Result<(), Exception> { self.load(status, 1, false) }
+    fn lhu(&self, status: &mut Status) -> Result<(), Exception> { self.load(status, 2, false) }
 
-    fn store(&self, status: &mut Status, byte_size: u32) {
+    fn store(&self, status: &mut Status, byte_size: u32) -> Result<(), Exception> {
         let addr = status.read_reg(self.rs1()).wrapping_add(self.imm());
         let data = status.read_reg(self.rs2());
         (0..byte_size)
             .map(|index| data.truncate((index + 1) * 8 - 1, index * 8) as u8)
             .zip(0..)
             .for_each(|(data, index)| status.write_mem(data, addr.wrapping_add(index)));
+
+        Ok(())
     }
 
-    fn sb(&self, status: &mut Status) { self.store(status, 1) }
-    fn sh(&self, status: &mut Status) { self.store(status, 2) }
-    fn sw(&self, status: &mut Status) { self.store(status, 4) }
+    fn sb(&self, status: &mut Status) -> Result<(), Exception> { self.store(status, 1) }
+    fn sh(&self, status: &mut Status) -> Result<(), Exception> { self.store(status, 2) }
+    fn sw(&self, status: &mut Status) -> Result<(), Exception> { self.store(status, 4) }
 
-    fn rs1_imm_ops(&self, status: &mut Status, f: impl Fn(u32, u32) -> u32) {
+    fn rs1_imm_ops(&self, status: &mut Status, f: impl Fn(u32, u32) -> u32) -> Result<(), Exception> {
         let rs1_value = status.read_reg(self.rs1());
         let imm_value = self.imm();
         let result = f(rs1_value, imm_value);
 
-        status.write_reg(result, self.rd())
+        status.write_reg(result, self.rd());
+
+        Ok(())
     }
 
-    fn addi(&self, status: &mut Status) {
+    fn addi(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_imm_ops(status, |rs1, imm| rs1.wrapping_add(imm))
     }
 
-    fn slti(&self, status: &mut Status) {
+    fn slti(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_imm_ops(status, |rs1, imm| {
             let rs1 = rs1 as i32;
             let imm = imm as i32;
@@ -318,74 +334,76 @@ impl Instruction {
         })
     }
 
-    fn sltiu(&self, status: &mut Status) {
+    fn sltiu(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_imm_ops(status, |rs1, imm| {
             (rs1 < imm) as u32
         })
     }
 
-    fn xori(&self, status: &mut Status) {
+    fn xori(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_imm_ops(status, |rs1, imm| { rs1 ^ imm } )
     }
 
-    fn ori(&self, status: &mut Status) {
+    fn ori(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_imm_ops(status, |rs1, imm| { rs1 | imm } )
     }
 
-    fn andi(&self, status: &mut Status) {
+    fn andi(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_imm_ops(status, |rs1, imm| { rs1 & imm } )
     }
 
-    fn slli(&self, status: &mut Status) {
+    fn slli(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_imm_ops(status, |rs1, imm| {
             let shamt = imm.truncate(4, 0);
             rs1 << shamt
         })
     }
 
-    fn srli(&self, status: &mut Status) {
+    fn srli(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_imm_ops(status, |rs1, imm| {
             let shamt = imm.truncate(4, 0);
             rs1 >> shamt
         })
     }
 
-    fn srai(&self, status: &mut Status) {
+    fn srai(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_imm_ops(
             status,
             |rs1, imm| arithmetic_right_shift(rs1, imm),
         )
     }
 
-    fn rs1_rs2_ops(&self, status: &mut Status, f: impl Fn(u32, u32) -> u32) {
+    fn rs1_rs2_ops(&self, status: &mut Status, f: impl Fn(u32, u32) -> u32) -> Result<(), Exception> {
         let rs1_value = status.read_reg(self.rs1());
         let rs2_value = status.read_reg(self.rs2());
         let result = f(rs1_value, rs2_value);
 
-        status.write_reg(result, self.rd())
+        status.write_reg(result, self.rd());
+
+        Ok(())
     }
 
-    fn add(&self, status: &mut Status) {
+    fn add(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_rs2_ops(status, |rs1, rs2| rs1.wrapping_add(rs2))
     }
 
-    fn sub(&self, status: &mut Status) {
+    fn sub(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_rs2_ops(status, |rs1, rs2| rs1.wrapping_sub(rs2))
     }
 
-    fn xor(&self, status: &mut Status) {
+    fn xor(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_rs2_ops(status, |rs1, rs2| rs1 ^ rs2)
     }
 
-    fn or(&self, status: &mut Status) {
+    fn or(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_rs2_ops(status, |rs1, rs2| rs1 | rs2)
     }
 
-    fn and(&self, status: &mut Status) {
+    fn and(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_rs2_ops(status, |rs1, rs2| rs1 & rs2)
     }
 
-    fn slt(&self, status: &mut Status) {
+    fn slt(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_rs2_ops(status, |rs1, rs2| {
             let rs1 = rs1 as i32;
             let rs2 = rs2 as i32;
@@ -394,87 +412,154 @@ impl Instruction {
         })
     }
 
-    fn sltu(&self, status: &mut Status) {
+    fn sltu(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_rs2_ops(status, |rs1, rs2| {
             (rs1 < rs2) as u32
         })
     }
 
-    fn sll(&self, status: &mut Status) {
+    fn sll(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_rs2_ops(status, |rs1, rs2| {
             rs1 << rs2.truncate(4, 0)
         })
     }
 
-    fn srl(&self, status: &mut Status) {
+    fn srl(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_rs2_ops(status, |rs1, rs2| {
             rs1 >> rs2.truncate(4, 0)
         })
     }
 
-    fn sra(&self, status: &mut Status) {
+    fn sra(&self, status: &mut Status) -> Result<(), Exception> {
         self.rs1_rs2_ops(
             status,
             |rs1, rs2| arithmetic_right_shift(rs1, rs2.truncate(4, 0))
         )
     }
 
-    fn csrrw(&self, status: &mut Status) {
-        let addr = self.imm().truncate(11, 0) as usize;
-        let rs1 = status.read_reg(self.rs1());
-        let csr = panic!();
-
-        status.write_reg(csr, self.rd());
-        status.write_csr
-    }
-
-    fn csrrs(&self, status: &mut Status) {
-
-    }
-
-    fn csrrc(&self, status: &mut Status) {
-
-    }
-
-    fn csrrwi(&self, status: &mut Status) {
-
-    }
-
-    fn csrrsi(&self, status: &mut Status) {
-
-    }
-
-    fn csrrci(&self, status: &mut Status) {
-
-    }
-
-    fn manipulate_csr(
+    fn csr_manipulate(
         &self,
         status: &mut Status,
-        addr: usize,
-        rs1: usize,
-        rd: usize,
-        read: impl Fn(usize) -> u32,
-        write: impl Fn(usize, u32) -> ()
-    ) {
+        read: impl Fn(&mut Status, usize) -> Result<u32, Exception>,
+        write: impl Fn(&mut Status, usize, u32, u32) -> Result<(), Exception>,
+        get_src: impl Fn(&mut Status) -> u32,
+    ) -> Result<(), Exception> {
+        let addr = self.imm().truncate(11, 0) as usize;
+        let csr = read(status, addr)?;
+        let src = get_src(status);
+        let rd = self.rd();
 
+        status.write_reg(csr, rd);
+
+        write(status, addr, csr, src)
+    }
+
+    fn csr_manipulate_uimm(
+        &self,
+        status: &mut Status,
+        read: impl Fn(&mut Status, usize) -> Result<u32, Exception>,
+        write: impl Fn(&mut Status, usize, u32, u32) -> Result<(), Exception>,
+    ) -> Result<(), Exception> {
+        self.csr_manipulate(status, read, write, |_| self.rs1() as u32)
+    }
+
+
+    fn csr_manipulate_rs1(
+        &self,
+        status: &mut Status,
+        read: impl Fn(&mut Status, usize) -> Result<u32, Exception>,
+        write: impl Fn(&mut Status, usize, u32, u32) -> Result<(), Exception>
+    ) -> Result<(), Exception> {
+        self.csr_manipulate(status, read, write, |status| status.read_reg(self.rs1()))
+    }
+
+    fn csrrw(&self, status: &mut Status) -> Result<(), Exception> {
+        self.csr_manipulate_rs1(
+            status,
+            |status, addr| -> Result<u32, Exception> {
+                if self.rd() == 0 { Ok(0) }
+                else { status.csr.read(addr, self.raw_code) }
+            },
+            |status, addr, csr, rs1| -> Result<(), Exception>{
+                status.csr.write(addr, rs1, self.raw_code)
+            }
+        )
+    }
+
+    fn csrrs(&self, status: &mut Status) -> Result<(), Exception> {
+        self.csr_manipulate_rs1(
+            status,
+            |status, addr| -> Result<u32, Exception> {
+                status.csr.read(addr, self.raw_code)
+            },
+            |status, addr, csr, rs1| -> Result<(), Exception> {
+                if self.rs1() == 0 { Ok(()) }
+                else { status.csr.write(addr, csr | rs1, self.raw_code) }
+            }
+        )
+    }
+
+    fn csrrc(&self, status: &mut Status) -> Result<(), Exception>{
+        self.csr_manipulate_rs1(
+            status,
+            |status, addr| -> Result<u32, Exception> {
+                status.csr.read(addr, self.raw_code)
+            },
+            |status, addr, csr, rs1| -> Result<(), Exception> {
+                if self.rs1() == 0 { Ok(()) }
+                else { status.csr.write(addr, csr & !rs1, self.raw_code) }
+            }
+        )
+    }
+
+    fn csrrwi(&self, status: &mut Status) -> Result<(), Exception> {
+        self.csr_manipulate_uimm(
+            status,
+            |status, addr| -> Result<u32, Exception> {
+                if self.rd() == 0 { Ok(0) }
+                else { status.csr.read(addr, self.raw_code) }
+            },
+            |status, addr, csr, uimm| -> Result<(), Exception>{
+                status.csr.write(addr, uimm, self.raw_code)
+            }
+        )
+    }
+
+    fn csrrsi(&self, status: &mut Status) -> Result<(), Exception> {
+        self.csr_manipulate_uimm(
+            status,
+            |status, addr| -> Result<u32, Exception> {
+                status.csr.read(addr, self.raw_code)
+            },
+            |status, addr, csr, uimm| -> Result<(), Exception> {
+                if self.rs1() == 0 { Ok(()) }
+                else { status.csr.write(addr, csr | uimm, self.raw_code) }
+            }
+        )
+    }
+
+    fn csrrci(&self, status: &mut Status) -> Result<(), Exception> {
+        self.csr_manipulate_uimm(
+            status,
+            |status, addr| -> Result<u32, Exception> {
+                status.csr.read(addr, self.raw_code)
+            },
+            |status, addr, csr, uimm| -> Result<(), Exception> {
+                if self.rs1() == 0 { Ok(()) }
+                else { status.csr.write(addr, csr & !uimm, self.raw_code) }
+            }
+        )
     }
 
     // FENCE, ECALL and EBREAK instruction does not do anything
-    fn fence(&self, status: &mut Status) { }
-    fn ecall(&self, status: &mut Status) {
-        let a0 = status.read_reg(10);
-        let a7 = status.read_reg(17);
-
-        match a0 {
-             1 => println!("{}", a7),
-            10 => status.terminate_cpu(),
-             _ => panic!("unknown system call value!")
-        };
+    fn fence(&self, status: &mut Status) -> Result<(), Exception> { Ok(()) }
+    fn ecall(&self, status: &mut Status) -> Result<(), Exception> {
+        // for now, there is only m-mode, so no need to select environmental call patterns.
+        Err(Exception::EnvironmentalCallMMode)
     }
-    fn ebreak(&self, status: &mut Status) { }
+    fn ebreak(&self, status: &mut Status) -> Result<(), Exception> { Err(Exception::Breakpoint(status.pc)) }
 
-    pub fn exec(&self, status: &mut Status) {
+    pub fn exec(&self, status: &mut Status) -> Result<(), Exception> {
         match self.opcode {
             Opcode::LUI => self.lui(status),
             Opcode::AUIPC => self.auipc(status),
@@ -516,12 +601,12 @@ impl Instruction {
             Opcode::FENCE => self.fence(status),
             Opcode::ECALL => self.ecall(status),
             Opcode::EBREAK => self.ebreak(status),
-            Opcode::CSRRW => ,
-            Opcode::CSRRS =>,
-            Opcode::CSRRC =>,
-            Opcode::CSRRWI =>,
-            Opcode::CSRRSI =>,
-            Opcode::CSRRCI =>,
+            Opcode::CSRRW => self.csrrw(status),
+            Opcode::CSRRS => self.csrrs(status),
+            Opcode::CSRRC => self.csrrc(status),
+            Opcode::CSRRWI => self.csrrwi(status),
+            Opcode::CSRRSI => self.csrrsi(status),
+            Opcode::CSRRCI => self.csrrci(status),
         }
     }
 }
