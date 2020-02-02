@@ -3,6 +3,7 @@ extern crate num_bigint;
 use super::bitwise::Bitwise;
 use super::exception::Exception;
 use super::super::core::Core;
+use crate::core::csr::M_E_PC;
 
 pub struct Instruction {
     raw_code: u32,
@@ -93,10 +94,15 @@ impl Instruction {
 
                 (opcode, EncodeType::RType)
             }
-            0b0001111 if funct3  == 0b000 => (Opcode::FENCE, EncodeType::IType),
+            0b0001111 => match funct3 {
+                0b000 => (Opcode::FENCE, EncodeType::IType),
+                0b001 => (Opcode::FENCE_I, EncodeType::IType),
+                    _ => Err(Exception::IllegalInstruction(inst))?,
+            }
             0b1110011 if inst.truncate(19, 7) == 0 => match funct12 {
                 0b0000_0000_0000 => (Opcode::ECALL, EncodeType::IType),
                 0b0000_0000_0001 => (Opcode::EBREAK, EncodeType::IType),
+                0b0011_0000_0010 => (Opcode::MRET, EncodeType::IType),
                                _ => Err(Exception::IllegalInstruction(inst))?,
             }
             0b1110011 => match funct3 {
@@ -548,13 +554,29 @@ impl Instruction {
         )
     }
 
-    // FENCE, ECALL and EBREAK instruction does not do anything
+    // FENCE and FENCE_I instructions does not do anything
     fn fence(&self, _core: &mut Core) -> Result<(), Exception> { Ok(()) }
+    fn fence_i(&self, _core: &mut Core) -> Result<(), Exception> { Ok(()) }
+
     fn ecall(&self, _core: &mut Core) -> Result<(), Exception> {
         // for now, there is only m-mode, so no need to select environmental call patterns.
         Err(Exception::EnvironmentalCallMMode)
     }
     fn ebreak(&self, core: &mut Core) -> Result<(), Exception> { Err(Exception::Breakpoint(core.pc)) }
+
+    fn mret(&self, core: &mut Core) -> Result<(), Exception> {
+        let _ = core.csr.get_mpp(); // this core runs only on m-mode for now, so this value is thrown away.
+        core.csr.set_mpp(0b11);
+
+        let mpie = core.csr.get_mpie();
+        core.csr.set_mpie(false);
+        core.csr.set_mie(mpie == 1);
+
+        let epc = core.csr.read(M_E_PC, 0).unwrap();
+        core.pc = epc;
+
+        Ok(())
+    }
 
     pub fn exec(&self, core: &mut Core) -> Result<(), Exception> {
         match self.opcode {
@@ -596,6 +618,7 @@ impl Instruction {
             Opcode::OR => self.or(core),
             Opcode::AND => self.and(core),
             Opcode::FENCE => self.fence(core),
+            Opcode::FENCE_I => self.fence_i(core),
             Opcode::ECALL => self.ecall(core),
             Opcode::EBREAK => self.ebreak(core),
             Opcode::CSRRW => self.csrrw(core),
@@ -604,6 +627,7 @@ impl Instruction {
             Opcode::CSRRWI => self.csrrwi(core),
             Opcode::CSRRSI => self.csrrsi(core),
             Opcode::CSRRCI => self.csrrci(core),
+            Opcode::MRET => self.mret(core),
         }
     }
 }
@@ -642,6 +666,7 @@ impl std::fmt::Display for EncodeType {
     }
 }
 
+#[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Opcode {
     LUI,
@@ -682,6 +707,7 @@ enum Opcode {
     OR,
     AND,
     FENCE,
+    FENCE_I,
     ECALL,
     EBREAK,
     CSRRW,
@@ -690,6 +716,7 @@ enum Opcode {
     CSRRWI,
     CSRRSI,
     CSRRCI,
+    MRET,
 }
 /*
 #[cfg(test)]
