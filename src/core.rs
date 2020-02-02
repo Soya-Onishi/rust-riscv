@@ -47,7 +47,7 @@ impl Core {
 
     pub fn load_and_run(&mut self, filename: String) {
         self.load(filename);
-        self.execute();
+        self.run();
     }
 
     fn load(&mut self, filename: String) {
@@ -57,8 +57,6 @@ impl Core {
         let sections = elf.sections;
         for section in sections.iter() {
             if section.shdr.shtype == elf::types::SHT_PROGBITS {
-                let offset = section.shdr.offset as u32;
-                let size = section.shdr.size as u32;
                 let target_addr = section.shdr.addr as u32;
                 let data = &section.data;
 
@@ -109,9 +107,9 @@ impl Core {
                 let tval = exp.get_tval();
                 let cause = exp.get_cause();
 
-                self.csr.write(M_T_VAL, tval, 0);
-                self.csr.write(M_CAUSE, cause, 0);
-                self.csr.write(M_E_PC, self.pc, 0);
+                let _ = self.csr.write(M_T_VAL, tval, 0);
+                let _ = self.csr.write(M_CAUSE, cause, 0);
+                let _ = self.csr.write(M_E_PC, self.pc, 0);
                 self.csr.set_mpie(self.csr.get_mie() == 1);
                 self.csr.set_mie(false);
                 self.csr.set_mpp(0b11);

@@ -4,9 +4,6 @@ use super::bitwise::Bitwise;
 use super::exception::Exception;
 use super::super::core::Core;
 
-use std::fmt;
-use num_bigint::{Sign, BigInt};
-
 pub struct Instruction {
     raw_code: u32,
     opcode: Opcode,
@@ -480,7 +477,7 @@ impl Instruction {
                 if self.rd() == 0 { Ok(0) }
                 else { core.csr.read(addr, self.raw_code) }
             },
-            |core, addr, csr, rs1| -> Result<(), Exception>{
+            |core, addr, _csr, rs1| -> Result<(), Exception>{
                 core.csr.write(addr, rs1, self.raw_code)
             }
         )
@@ -519,7 +516,7 @@ impl Instruction {
                 if self.rd() == 0 { Ok(0) }
                 else { core.csr.read(addr, self.raw_code) }
             },
-            |core, addr, csr, uimm| -> Result<(), Exception>{
+            |core, addr, _csr, uimm| -> Result<(), Exception>{
                 core.csr.write(addr, uimm, self.raw_code)
             }
         )
@@ -552,8 +549,8 @@ impl Instruction {
     }
 
     // FENCE, ECALL and EBREAK instruction does not do anything
-    fn fence(&self, core: &mut Core) -> Result<(), Exception> { Ok(()) }
-    fn ecall(&self, core: &mut Core) -> Result<(), Exception> {
+    fn fence(&self, _core: &mut Core) -> Result<(), Exception> { Ok(()) }
+    fn ecall(&self, _core: &mut Core) -> Result<(), Exception> {
         // for now, there is only m-mode, so no need to select environmental call patterns.
         Err(Exception::EnvironmentalCallMMode)
     }

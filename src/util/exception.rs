@@ -1,5 +1,4 @@
-use super::super::core::csr::*;
-
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum Exception {
     UserSoftwareInterrupt,

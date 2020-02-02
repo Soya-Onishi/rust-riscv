@@ -40,37 +40,37 @@ impl CSRFile {
         if addr & 0b1100_0000_0000 > 0 { return Err(Exception::IllegalInstruction(inst)) }
 
         match addr {
-            M_STATUS => self.write_csr(M_STATUS, value, 0x0000_1888, "mstatus"),
-            M_ISA => self.write_csr(M_ISA, value, 0, "misa"),
+            M_STATUS => self.write_csr(M_STATUS, value, 0x0000_1888),
+            M_ISA => self.write_csr(M_ISA, value, 0),
             M_E_DELEG => panic!("medeleg is not implemented"),
             M_I_DELEG => panic!("mideleg is not implemented"),
-            M_IE => self.write_csr(M_IE, value, 0x0000_0888, "mie"),
-            M_T_VEC => self.write_csr(M_T_VEC, value, 0xFFFF_FFFD, "mtvec"),
-            M_COUNTER_EN => self.write_csr(M_COUNTER_EN, value, 0xFFFF_FFFF, "mcounteren"),
-            M_SCRATCH => self.write_csr(M_SCRATCH, value, 0xFFFF_FFFF, "mscratch"),
-            M_E_PC => self.write_csr(M_E_PC, value, 0xFFFF_FFFC, "mepc"),
-            M_CAUSE => self.write_csr(M_CAUSE, value, 0xFFFF_FFFF, "mcause"),
-            M_T_VAL => self.write_csr(M_T_VAL, value, 0xFFFF_FFFF, "mtval"),
-            M_IP => self.write_csr(M_IP, value, 0, "mip"),
-            M_CYCLE => self.write_hpm_counter(M_CYCLE, value, "mcycle"),
-            M_INST_RET => self.write_hpm_counter(M_INST_RET, value, "minstret"),
-            M_CYCLE_H => self.write_hpm_counterh(M_CYCLE, value, "mcycleh"),
-            M_INST_RET_H => self.write_hpm_counterh(M_INST_RET, value, "minstreth"),
-            addr if is_hpm_counter_range(addr) => self.write_hpm_counter(addr, value, "mhpmcounter"),
-            addr if is_hpm_counter_h_range(addr) => self.write_hpm_counterh(addr, value, "mhpmcounterh"),
-            addr if is_hpm_event_range(addr) => self.write_hpm_event(addr, value, "mhpmevent"),
+            M_IE => self.write_csr(M_IE, value, 0x0000_0888),
+            M_T_VEC => self.write_csr(M_T_VEC, value, 0xFFFF_FFFD),
+            M_COUNTER_EN => self.write_csr(M_COUNTER_EN, value, 0xFFFF_FFFF),
+            M_SCRATCH => self.write_csr(M_SCRATCH, value, 0xFFFF_FFFF),
+            M_E_PC => self.write_csr(M_E_PC, value, 0xFFFF_FFFC),
+            M_CAUSE => self.write_csr(M_CAUSE, value, 0xFFFF_FFFF),
+            M_T_VAL => self.write_csr(M_T_VAL, value, 0xFFFF_FFFF),
+            M_IP => self.write_csr(M_IP, value, 0),
+            M_CYCLE => self.write_hpm_counter(M_CYCLE, value),
+            M_INST_RET => self.write_hpm_counter(M_INST_RET, value),
+            M_CYCLE_H => self.write_hpm_counterh(M_CYCLE, value),
+            M_INST_RET_H => self.write_hpm_counterh(M_INST_RET, value),
+            addr if is_hpm_counter_range(addr) => self.write_hpm_counter(addr, value),
+            addr if is_hpm_counter_h_range(addr) => self.write_hpm_counterh(addr, value),
+            addr if is_hpm_event_range(addr) => self.write_hpm_event(addr, value),
             _ => Err(Exception::IllegalInstruction(inst))?,
         }
 
         Ok(())
     }
 
-    fn write_csr(&mut self, addr: usize, value: u32, mask: u32, name: &str) {
+    fn write_csr(&mut self, addr: usize, value: u32, mask: u32) {
         let masked_value = value & mask;
         self.csrs.insert(addr, masked_value);
     }
 
-    fn write_hpm_counter(&mut self, addr: usize, value: u32, name: &str) {
+    fn write_hpm_counter(&mut self, addr: usize, value: u32) {
         let counter = self.performance_counter[&addr];
         let counter = counter & 0xFFFF_FFFF_0000_0000;
         let value = counter | (value as u64);
@@ -78,7 +78,7 @@ impl CSRFile {
         self.performance_counter.insert(addr, value);
     }
 
-    fn write_hpm_counterh(&mut self, addr: usize, value: u32, name: &str) {
+    fn write_hpm_counterh(&mut self, addr: usize, value: u32) {
         let addr = addr & !0x80;
         let counter = self.performance_counter[&addr];
         let counter = counter & 0x0000_0000_FFFF_FFFF;
@@ -87,7 +87,7 @@ impl CSRFile {
         self.performance_counter.insert(addr, value);
     }
 
-    fn write_hpm_event(&mut self, addr: usize, value: u32, name: &str) {
+    fn write_hpm_event(&mut self, addr: usize, value: u32) {
         self.csrs.insert(addr, value);
     }
 
@@ -141,7 +141,7 @@ impl CSRFile {
     pub fn set_mie(&mut self, value: bool) {
         let mstatus = self.csrs[&M_STATUS] & !(1 << 3);
         let mstatus = mstatus | ((value as u32) << 3);
-        *self.csrs.entry(M_STATUS).or_insert(no_csr("mstatus")) = mstatus;
+        self.csrs.insert(M_STATUS, mstatus);
     }
 
     pub fn get_mpie(&self) -> u32 {
@@ -151,7 +151,7 @@ impl CSRFile {
     pub fn set_mpie(&mut self, value: bool) {
         let mstatus = self.csrs[&M_STATUS] & !(1 << 7);
         let mstatus = mstatus | ((value as u32) << 7);
-        *self.csrs.entry(M_STATUS).or_insert(no_csr("mstatus")) = mstatus;
+        self.csrs.insert(M_STATUS, mstatus);
     }
 
     pub fn get_mpp(&self) -> u32 {
@@ -163,12 +163,8 @@ impl CSRFile {
         let mpp = value & 3;
         let mstatus = mstatus | (mpp << 11);
 
-        *self.csrs.entry(M_STATUS).or_insert(no_csr("mstatus")) = mstatus;
+        self.csrs.insert(M_STATUS, mstatus);
     }
-}
-
-fn no_csr(csr: &str) -> ! {
-    panic!("implementation error there is no {}", csr)
 }
 
 pub const M_VENDOR_ID: usize = 0xF11;

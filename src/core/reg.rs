@@ -27,6 +27,7 @@ impl RegFile<u32> {
     }
 }
 
+#[allow(dead_code)]
 impl RegFile<f32> {
     pub fn new() -> RegFile<f32> {
         RegFile {
