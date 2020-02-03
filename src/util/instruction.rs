@@ -1,5 +1,6 @@
 extern crate num_bigint;
 
+use std::fmt;
 use super::bitwise::Bitwise;
 use super::exception::Exception;
 use super::super::core::Core;
@@ -206,6 +207,13 @@ impl Instruction {
             self.imm(),
         );
 
+        instruction_exec_log(format!(
+            "0x{:08x} lui imm: 0x{:08x} rd: {}",
+            core.pc,
+            self.imm(),
+            self.rd()
+        ));
+
         Ok(())
     }
 
@@ -214,6 +222,8 @@ impl Instruction {
             self.rd(),
             self.imm().wrapping_add(core.pc),
         );
+
+        instruction_exec_log(format!("auipc imm: 0x{:08x} pc: 0x{:08x} rd: {}", self.imm(), core.pc, self.rd()));
 
         Ok(())
     }
@@ -252,6 +262,18 @@ impl Instruction {
             };
 
         core.branch_manager.push_queue(branch_dest);
+
+        instruction_exec_log(format!(
+            "0x{:08x} {} rs1[{}] rs2[{}] (rs1: 0x{:08x}, rs2: 0x{:08x}, dest: 0x{:08x}, res: {})",
+            core.pc,
+            self.opcode,
+            self.rs1(),
+            self.rs2(),
+            rs1_value,
+            rs2_value,
+            branch_dest,
+            f(rs1_value, rs2_value)
+        ));
 
         Ok(())
     }
@@ -321,6 +343,17 @@ impl Instruction {
 
         core.ireg.write(self.rd(), result);
 
+        instruction_exec_log(format!(
+            "0x{:08x} {} rd[{}] rs1[{}] (rs1: 0x{:08x}, imm: 0x{:08x}, res: 0x{:08x})",
+            core.pc,
+            self.opcode,
+            self.rd(),
+            self.rs1(),
+            rs1_value,
+            imm_value,
+            result
+        ));
+
         Ok(())
     }
 
@@ -382,6 +415,19 @@ impl Instruction {
         let result = f(rs1_value, rs2_value);
 
         core.ireg.write(self.rd(), result);
+
+        instruction_exec_log(format!(
+            "0x{:08x} {} rd[{}] rs1[{}] rs2[{}] (rs1: 0x{:08x}, rs2: 0x{:08x}, res: 0x{:08x})",
+            core.pc,
+            self.opcode,
+            self.rd(),
+            self.rs1(),
+            self.rs2(),
+            rs1_value,
+            rs2_value,
+            result
+        ));
+
 
         Ok(())
     }
@@ -573,7 +619,7 @@ impl Instruction {
         core.csr.set_mie(mpie == 1);
 
         let epc = core.csr.read(M_E_PC, 0).unwrap();
-        core.pc = epc;
+        core.pc = epc - 4;
 
         Ok(())
     }
@@ -718,6 +764,17 @@ enum Opcode {
     CSRRCI,
     MRET,
 }
+
+impl fmt::Display for Opcode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", format!("{:?}", self).to_lowercase())
+    }
+}
+
+fn instruction_exec_log(str: String) {
+    // println!("[execute instruction] {}", str);
+}
+
 /*
 #[cfg(test)]
 mod test {

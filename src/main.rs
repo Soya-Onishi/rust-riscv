@@ -10,5 +10,6 @@ fn main() {
         println!("run: {}", &filename);
         let mut core = core::Core::new(0, true);
         core.load_and_run(filename.clone());
+        println!();
     }
 }

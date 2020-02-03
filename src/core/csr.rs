@@ -42,8 +42,8 @@ impl CSRFile {
         match addr {
             M_STATUS => self.write_csr(M_STATUS, value, 0x0000_1888),
             M_ISA => self.write_csr(M_ISA, value, 0),
-            M_E_DELEG => panic!("medeleg is not implemented"),
-            M_I_DELEG => panic!("mideleg is not implemented"),
+            M_E_DELEG => return Err(Exception::IllegalInstruction(inst)),
+            M_I_DELEG => return Err(Exception::IllegalInstruction(inst)),
             M_IE => self.write_csr(M_IE, value, 0x0000_0888),
             M_T_VEC => self.write_csr(M_T_VEC, value, 0xFFFF_FFFD),
             M_COUNTER_EN => self.write_csr(M_COUNTER_EN, value, 0xFFFF_FFFF),

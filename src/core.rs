@@ -116,7 +116,6 @@ impl Core {
 
                 self.branch_manager.flush_queue();
                 self.pc = trap_vector;
-
             }
         }
     }
