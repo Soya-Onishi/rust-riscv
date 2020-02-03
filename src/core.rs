@@ -125,12 +125,14 @@ impl Core {
         let a0 = self.ireg.read(10);
 
         match a0 {
-            0 => {
+            1 => {
                 let a7 = self.ireg.read(17);
                 print!("{}", a7);
             }
             10 => self.is_turnon = false,
              _ => panic!("unknown ecall code: {}", a0),
         }
+
+        self.pc += 4;
     }
 }
