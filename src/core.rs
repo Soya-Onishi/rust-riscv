@@ -2,7 +2,6 @@ pub mod csr;
 pub mod reg;
 pub mod memory;
 pub mod branch_manager;
-extern crate elf;
 
 use std::fs;
 use std::io;
@@ -23,12 +22,12 @@ pub struct Core {
     pub csr: CSRFile,
     pub memory: Memory,
     pub branch_manager: BranchManager,
-    pub use_builtin_ecall: bool,
+    pub use_builtin_exception_handler: bool,
     pub is_turnon: bool,
 }
 
 impl Core {
-    pub fn new(delay_cycle: usize, use_builtin_ecall: bool) -> Core {
+    pub fn new(delay_cycle: usize, use_builtin_exception_handler: bool) -> Core {
         let ireg = RegFile::<u32>::new();
         let csr = CSRFile::new();
         let memory = Memory::new();
@@ -40,48 +39,22 @@ impl Core {
             csr,
             memory,
             branch_manager,
-            use_builtin_ecall,
+            use_builtin_exception_handler,
             is_turnon: true,
         }
     }
 
-    pub fn load_and_run(&mut self, filename: String) {
-        self.load(filename);
-        self.run();
-    }
-
-    fn load(&mut self, filename: String) {
-        let binary = fs::read(filename).unwrap();
-        let mut cursor = io::Cursor::new(binary);
-        let elf = elf::File::open_stream(&mut cursor).unwrap();
-        let sections = elf.sections;
-        for section in sections.iter() {
-            if section.shdr.shtype == elf::types::SHT_PROGBITS {
-                let target_addr = section.shdr.addr as u32;
-                let data = &section.data;
-
-                for (&bin, index) in data.iter().zip(0..) {
-                    self.memory.write(target_addr + index, bin)
-                }
+    pub fn execute(&mut self) {        
+        match self.execute_one_instrunction() {
+            Ok(()) => match self.branch_manager.pop_queue() {
+                Some(addr) => self.pc = addr,
+                None       => self.pc += 4
             }
-        }
-
-        self.pc = elf.ehdr.entry as u32;
+            Err(exp) => self.raise_exception(exp),
+        }        
     }
 
-    fn run(&mut self) {
-        while self.is_turnon {
-            match self.execute() {
-                Ok(()) => match self.branch_manager.pop_queue() {
-                    Some(addr) => self.pc = addr,
-                    None             => self.pc += 4
-                }
-                Err(exp) => self.raise_exception(exp),
-            }
-        }
-    }
-
-    fn execute(&mut self) -> Result<(), Exception>{
+    fn execute_one_instrunction(&mut self) -> Result<(), Exception>{
         let inst = self.fetch()?;
         let inst = Instruction::new(inst)?;
         inst.exec(self)?;
@@ -101,7 +74,23 @@ impl Core {
         match exp {
             Exception::EnvironmentalCallMMode |
             Exception::EnvironmentalCallSMode |
-            Exception::EnvironmentalCallUMode if self.use_builtin_ecall => self.run_built_in_ecall(),
+            Exception::EnvironmentalCallUMode if self.use_builtin_exception_handler => {
+                let a0 = self.ireg.read(10);
+
+                match a0 {
+                    1 => {
+                        let a7 = self.ireg.read(17);
+                        print!("{}", a7);
+                    }
+                    10 => self.is_turnon = false,
+                    _ => {
+                        println!("unknown ecall code: {}", a0);
+                        self.is_turnon = false;
+                    },
+                }
+
+                self.pc += 4;            
+            }
             _ => {
                 let trap_vector = self.csr.make_exception_vector(exp);
                 let tval = exp.get_tval();
@@ -118,20 +107,5 @@ impl Core {
                 self.pc = trap_vector;
             }
         }
-    }
-
-    fn run_built_in_ecall(&mut self) {
-        let a0 = self.ireg.read(10);
-
-        match a0 {
-            1 => {
-                let a7 = self.ireg.read(17);
-                print!("{}", a7);
-            }
-            10 => self.is_turnon = false,
-             _ => panic!("unknown ecall code: {}", a0),
-        }
-
-        self.pc += 4;
     }
 }
