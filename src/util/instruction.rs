@@ -1,6 +1,7 @@
 extern crate num_bigint;
 
 use std::fmt;
+
 use super::bitwise::Bitwise;
 use super::exception::Exception;
 use super::super::core::Core;
@@ -13,115 +14,9 @@ pub struct Instruction {
 }
 
 impl Instruction {
-    /*
     pub fn new(inst: u32) -> Result<Instruction, Exception> {
-        let opcode = inst.truncate(6, 0);
-        let funct3 = inst.truncate(14, 12);
-        let funct7 = inst.truncate(31, 25);
-        let funct12 = inst.truncate(31, 20);
-
-        let (opcode, encode_type) = match opcode {
-            0b0110111 => (Opcode::LUI, EncodeType::UType),
-            0b0010111 => (Opcode::AUIPC, EncodeType::UType),
-            0b1101111 => (Opcode::JAL, EncodeType::JType),
-            0b1100111 => match funct3 {
-                0b000 => (Opcode::JALR, EncodeType::IType),
-                _     => Err(Exception::IllegalInstruction(inst))?,
-            },
-            0b1100011 => {
-                let opcode = match funct3 {
-                    0b000 => Opcode::BEQ,
-                    0b001 => Opcode::BNE,
-                    0b100 => Opcode::BLT,
-                    0b101 => Opcode::BGE,
-                    0b110 => Opcode::BLTU,
-                    0b111 => Opcode::BGEU,
-                    _     => Err(Exception::IllegalInstruction(inst))?,
-                };
-
-                (opcode, EncodeType::BType)
-            }
-            0b0000011 => {
-                let opcode = match funct3 {
-                    0b000 => Opcode::LB,
-                    0b001 => Opcode::LH,
-                    0b010 => Opcode::LW,
-                    0b100 => Opcode::LBU,
-                    0b101 => Opcode::LHU,
-                        _ => Err(Exception::IllegalInstruction(inst))?,
-                };
-
-                (opcode, EncodeType::IType)
-            }
-            0b0100011 => {
-                let opcode = match funct3 {
-                    0b000 => Opcode::SB,
-                    0b001 => Opcode::SH,
-                    0b010 => Opcode::SW,
-                        _ => Err(Exception::IllegalInstruction(inst))?,
-                };
-
-                (opcode, EncodeType::SType)
-            }
-            0b0010011 => {
-                let opcode = match funct3 {
-                    0b000 => Opcode::ADDI,
-                    0b010 => Opcode::SLTI,
-                    0b011 => Opcode::SLTIU,
-                    0b100 => Opcode::XORI,
-                    0b110 => Opcode::ORI,
-                    0b111 => Opcode::ANDI,
-                    0b001 if funct7 == 0b000_0000 => Opcode::SLLI,
-                    0b101 if funct7 == 0b000_0000 => Opcode::SRLI,
-                    0b101 if funct7 == 0b010_0000 => Opcode::SRAI,
-                        _ => Err(Exception::IllegalInstruction(inst))?,
-                };
-
-                (opcode, EncodeType::IType)
-            }
-            0b0110011 => {
-                let opcode = match funct3 {
-                    0b000 if funct7 == 0b000_0000 => Opcode::ADD,
-                    0b000 if funct7 == 0b010_0000 => Opcode::SUB,
-                    0b001 if funct7 == 0b000_0000 => Opcode::SLL,
-                    0b010 if funct7 == 0b000_0000 => Opcode::SLT,
-                    0b011 if funct7 == 0b000_0000 => Opcode::SLTU,
-                    0b100 if funct7 == 0b000_0000 => Opcode::XOR,
-                    0b101 if funct7 == 0b000_0000 => Opcode::SRL,
-                    0b101 if funct7 == 0b010_0000 => Opcode::SRA,
-                    0b110 if funct7 == 0b000_0000 => Opcode::OR,
-                    0b111 if funct7 == 0b000_0000 => Opcode::AND,
-                        _ => Err(Exception::IllegalInstruction(inst))?,
-                };
-
-                (opcode, EncodeType::RType)
-            }
-            0b0001111 => match funct3 {
-                0b000 => (Opcode::FENCE, EncodeType::IType),
-                0b001 => (Opcode::FENCE_I, EncodeType::IType),
-                    _ => Err(Exception::IllegalInstruction(inst))?,
-            }
-            0b1110011 if inst.truncate(19, 7) == 0 => match funct12 {
-                0b0000_0000_0000 => (Opcode::ECALL, EncodeType::IType),
-                0b0000_0000_0001 => (Opcode::EBREAK, EncodeType::IType),
-                0b0011_0000_0010 => (Opcode::MRET, EncodeType::IType),
-                               _ => Err(Exception::IllegalInstruction(inst))?,
-            }
-            0b1110011 => match funct3 {
-                0b001 => (Opcode::CSRRW, EncodeType::IType),
-                0b010 => (Opcode::CSRRS, EncodeType::IType),
-                0b011 => (Opcode::CSRRC, EncodeType::IType),
-                0b101 => (Opcode::CSRRWI, EncodeType::IType),
-                0b110 => (Opcode::CSRRSI, EncodeType::IType),
-                0b111 => (Opcode::CSRRCI, EncodeType::IType),
-                    _ => Err(Exception::IllegalInstruction(inst))?,
-            }
-            _ => Err(Exception::IllegalInstruction(inst))?,
-        };
-
-        Ok(Instruction { raw_code: inst, opcode, encode_type })
+        Instruction::new_impl(inst)
     }
-    */
 
     fn rs1(&self) -> usize {
         match self.encode_type {
@@ -582,56 +477,7 @@ impl Instruction {
     }
 
     pub fn exec(&self, core: &mut Core) -> Result<(), Exception> {
-        match self.opcode {
-            Opcode::LUI => self.lui(core),
-            Opcode::AUIPC => self.auipc(core),
-            Opcode::JAL => self.jal(core),
-            Opcode::JALR => self.jalr(core),
-            Opcode::BEQ => self.beq(core),
-            Opcode::BNE => self.bne(core),
-            Opcode::BLT => self.blt(core),
-            Opcode::BGE => self.bge(core),
-            Opcode::BLTU => self.bltu(core),
-            Opcode::BGEU => self.bgeu(core),
-            Opcode::LB => self.lb(core),
-            Opcode::LH => self.lh(core),
-            Opcode::LW => self.lw(core),
-            Opcode::LBU => self.lbu(core),
-            Opcode::LHU => self.lhu(core),
-            Opcode::SB => self.sb(core),
-            Opcode::SH => self.sh(core),
-            Opcode::SW => self.sw(core),
-            Opcode::ADDI => self.addi(core),
-            Opcode::SLTI => self.slti(core),
-            Opcode::SLTIU => self.sltiu(core),
-            Opcode::XORI => self.xori(core),
-            Opcode::ORI => self.ori(core),
-            Opcode::ANDI => self.andi(core),
-            Opcode::SLLI => self.slli(core),
-            Opcode::SRLI => self.srli(core),
-            Opcode::SRAI => self.srai(core),
-            Opcode::ADD => self.add(core),
-            Opcode::SUB => self.sub(core),
-            Opcode::SLL => self.sll(core),
-            Opcode::SLT => self.slt(core),
-            Opcode::SLTU => self.sltu(core),
-            Opcode::XOR => self.xor(core),
-            Opcode::SRL => self.srl(core),
-            Opcode::SRA => self.sra(core),
-            Opcode::OR => self.or(core),
-            Opcode::AND => self.and(core),
-            Opcode::FENCE => self.fence(core),
-            Opcode::FENCE_I => self.fence_i(core),
-            Opcode::ECALL => self.ecall(core),
-            Opcode::EBREAK => self.ebreak(core),
-            Opcode::CSRRW => self.csrrw(core),
-            Opcode::CSRRS => self.csrrs(core),
-            Opcode::CSRRC => self.csrrc(core),
-            Opcode::CSRRWI => self.csrrwi(core),
-            Opcode::CSRRSI => self.csrrsi(core),
-            Opcode::CSRRCI => self.csrrci(core),
-            Opcode::MRET => self.mret(core),
-        }
+        self.exec_impl(core)
     }
 }
 
@@ -669,65 +515,10 @@ impl std::fmt::Display for EncodeType {
     }
 }
 
-/*
-#[allow(non_camel_case_types)]
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Opcode {
-    LUI,
-    AUIPC,
-    JAL,
-    JALR,
-    BEQ,
-    BNE,
-    BLT,
-    BGE,
-    BLTU,
-    BGEU,
-    LB,
-    LH,
-    LW,
-    LBU,
-    LHU,
-    SB,
-    SH,
-    SW,
-    ADDI,
-    SLTI,
-    SLTIU,
-    XORI,
-    ORI,
-    ANDI,
-    SLLI,
-    SRLI,
-    SRAI,
-    ADD,
-    SUB,
-    SLL,
-    SLT,
-    SLTU,
-    XOR,
-    SRL,
-    SRA,
-    OR,
-    AND,
-    FENCE,
-    FENCE_I,
-    ECALL,
-    EBREAK,
-    CSRRW,
-    CSRRS,
-    CSRRC,
-    CSRRWI,
-    CSRRSI,
-    CSRRCI,
-    MRET,
-}
-*/
-
 macro_rules! opcode_list {
     ($({ $opcode: ident, $encode_type: ident, op: $op: literal $(, f3: $f3: literal)? $(, f7: $f7: literal)? $(, f12: $f12: literal)? $(, [ $upper: literal, $lower: literal ] : $expect : literal),* $(,)?}),+) => {
         impl Instruction {
-            pub fn new(inst: u32) -> Result<Instruction, Exception> {
+            fn new_impl(inst: u32) -> Result<Instruction, Exception> {
                 let opcode = inst.truncate(6, 0);
                 let funct3 = inst.truncate(14, 12);
                 let funct7 = inst.truncate(31, 25);
@@ -744,6 +535,14 @@ macro_rules! opcode_list {
                         }
                     )+
                     _ => return Err(Exception::IllegalInstruction(inst)),
+                }
+            }
+
+            fn exec_impl(&self, core: &mut Core) -> Result<(), Exception> {
+                match self.opcode {
+                    $(
+                        Opcode::$opcode => self.$opcode(core),
+                    )+
                 }
             }
         }
@@ -765,54 +564,54 @@ macro_rules! opcode_list {
 }
 
 opcode_list!(
-    { LUI, UType, op: 0b0110111, },
-    { AUIPC, UType, op: 0b0010111, },
-    { JAL, JType, op: 0b1101111, },
-    { JALR, IType, op: 0b1101111, f3: 0b000, },
-    { BEQ, BType, op: 0b1100011, f3: 0b000, },
-    { BNE, BType, op: 0b1100011, f3: 0b001, },
-    { BLT, BType, op: 0b1100011, f3: 0b100, },
-    { BGE, BType, op: 0b1100011, f3: 0b101, },
-    { BLTU, BType, op: 0b1100011, f3: 0b110, },
-    { BGEU, BType, op: 0b1100011, f3: 0b111, },
-    { LB, IType, op: 0b0000011, f3: 0b000, },
-    { LH, IType, op: 0b0000011, f3: 0b001, },
-    { LW, IType, op: 0b0000011, f3: 0b010, },
-    { LBU, IType, op: 0b0000011, f3: 0b100, },
-    { LHU, IType, op: 0b0000011, f3: 0b101, },
-    { SB, IType, op: 0b0100011, f3: 0b000, },
-    { SH, IType, op: 0b0100011, f3: 0b001, },
-    { SW, IType, op: 0b0100011, f3: 0b010, },
-    { ADDI, IType, op: 0b0010011, f3: 0b000, },
-    { SLTI, IType, op: 0b0010011, f3: 0b010, },
-    { SLTIU, IType, op: 0b0010011, f3: 0b011, },
-    { XORI, IType, op: 0b0010011, f3: 0b100, },
-    { ORI, IType, op: 0b0010011, f3: 0b110, },
-    { ANDI, IType, op: 0b0010011, f3: 0b111, },
-    { SLLI, IType, op: 0b0010011, f3: 0b001, f7: 0b000_0000, },
-    { SRLI, IType, op: 0b0010011, f3: 0b101, f7: 0b000_0000, },
-    { SRAI, IType, op: 0b0010011, f3: 0b101, f7: 0b010_0000, },
-    { ADD, RType, op: 0b0110011, f3: 0b000, f7: 0b000_0000, },
-    { SUB, RType, op: 0b0110011, f3: 0b000, f7: 0b010_0000, },
-    { SLL, RType, op: 0b0110011, f3: 0b001, f7: 0b000_0000, },
-    { SLT, RType, op: 0b0110011, f3: 0b010, f7: 0b000_0000, },
-    { SLTU, RType, op: 0b0110011, f3: 0b011, f7: 0b000_0000, },
-    { XOR, RType, op: 0b0110011, f3: 0b100, f7: 0b000_0000, },
-    { SRL, RType, op: 0b0110011, f3: 0b101, f7: 0b000_0000, },
-    { SRA, RType, op: 0b0110011, f3: 0b101, f7: 0b010_0000, },
-    { OR, RType, op: 0b0110011, f3: 0b110, f7: 0b000_0000, },
-    { AND, RType, op: 0b0110011, f3: 0b111, f7: 0b000_0000, },
-    { FENCE, IType, op: 0b0001111, f3: 0b000, },
-    { FENCE_I, IType, op: 0b0001111, f3: 0b001, },
-    { ECALL, IType, op: 0b1110011, f12: 0b0000_0000_0000, [19, 7]: 0, },
-    { EBREAK, IType, op: 0b1110011, f12: 0b0000_0000_0001, [19, 7]: 0, },
-    { MRET, IType, op: 0b1110011, f12: 0b0000_0000_0001, [19, 7]: 0, },
-    { CSRRW, IType, op: 0b1110011, f3: 0b001, },
-    { CSRRS, IType, op: 0b1110011, f3: 0b010, },
-    { CSRRC, IType, op: 0b1110011, f3: 0b011, },
-    { CSRRWI, IType, op: 0b1110011, f3: 0b101, },
-    { CSRRSI, IType, op: 0b1110011, f3: 0b110, },
-    { CSRRCI, IType, op: 0b1110011, f3: 0b111, }
+    {     lui, UType, op: 0b0110111, },
+    {   auipc, UType, op: 0b0010111, },
+    {     jal, JType, op: 0b1101111, },
+    {    jalr, IType, op: 0b1101111, f3: 0b000, },
+    {     beq, BType, op: 0b1100011, f3: 0b000, },
+    {     bne, BType, op: 0b1100011, f3: 0b001, },
+    {     blt, BType, op: 0b1100011, f3: 0b100, },
+    {     bge, BType, op: 0b1100011, f3: 0b101, },
+    {    bltu, BType, op: 0b1100011, f3: 0b110, },
+    {    bgeu, BType, op: 0b1100011, f3: 0b111, },
+    {      lb, IType, op: 0b0000011, f3: 0b000, },
+    {      lh, IType, op: 0b0000011, f3: 0b001, },
+    {      lw, IType, op: 0b0000011, f3: 0b010, },
+    {     lbu, IType, op: 0b0000011, f3: 0b100, },
+    {     lhu, IType, op: 0b0000011, f3: 0b101, },
+    {      sb, IType, op: 0b0100011, f3: 0b000, },
+    {      sh, IType, op: 0b0100011, f3: 0b001, },
+    {      sw, IType, op: 0b0100011, f3: 0b010, },
+    {    addi, IType, op: 0b0010011, f3: 0b000, },
+    {    slti, IType, op: 0b0010011, f3: 0b010, },
+    {   sltiu, IType, op: 0b0010011, f3: 0b011, },
+    {    xori, IType, op: 0b0010011, f3: 0b100, },
+    {     ori, IType, op: 0b0010011, f3: 0b110, },
+    {    andi, IType, op: 0b0010011, f3: 0b111, },
+    {    slli, IType, op: 0b0010011, f3: 0b001, f7: 0b000_0000, },
+    {    srli, IType, op: 0b0010011, f3: 0b101, f7: 0b000_0000, },
+    {    srai, IType, op: 0b0010011, f3: 0b101, f7: 0b010_0000, },
+    {     add, RType, op: 0b0110011, f3: 0b000, f7: 0b000_0000, },
+    {     sub, RType, op: 0b0110011, f3: 0b000, f7: 0b010_0000, },
+    {     sll, RType, op: 0b0110011, f3: 0b001, f7: 0b000_0000, },
+    {     slt, RType, op: 0b0110011, f3: 0b010, f7: 0b000_0000, },
+    {    sltu, RType, op: 0b0110011, f3: 0b011, f7: 0b000_0000, },
+    {     xor, RType, op: 0b0110011, f3: 0b100, f7: 0b000_0000, },
+    {     srl, RType, op: 0b0110011, f3: 0b101, f7: 0b000_0000, },
+    {     sra, RType, op: 0b0110011, f3: 0b101, f7: 0b010_0000, },
+    {      or, RType, op: 0b0110011, f3: 0b110, f7: 0b000_0000, },
+    {     and, RType, op: 0b0110011, f3: 0b111, f7: 0b000_0000, },
+    {   fence, IType, op: 0b0001111, f3: 0b000, },
+    { fence_i, IType, op: 0b0001111, f3: 0b001, },
+    {   ecall, IType, op: 0b1110011, f12: 0b0000_0000_0000, [19, 7]: 0, },
+    {  ebreak, IType, op: 0b1110011, f12: 0b0000_0000_0001, [19, 7]: 0, },
+    {    mret, IType, op: 0b1110011, f12: 0b0000_0000_0001, [19, 7]: 0, },
+    {   csrrw, IType, op: 0b1110011, f3: 0b001, },
+    {   csrrs, IType, op: 0b1110011, f3: 0b010, },
+    {   csrrc, IType, op: 0b1110011, f3: 0b011, },
+    {  csrrwi, IType, op: 0b1110011, f3: 0b101, },
+    {  csrrsi, IType, op: 0b1110011, f3: 0b110, },
+    {  csrrci, IType, op: 0b1110011, f3: 0b111, }
 );
 
 #[cfg(test)]
@@ -825,8 +624,8 @@ mod test {
 
     #[test]
     fn make_add_inst() {
-        let inst = Instruction::test_decode(0x0000_0033).unwrap();
-        assert_eq!(inst.opcode, Opcode::ADD);
+        let inst = Instruction::new(0x0000_0033).unwrap();
+        assert_eq!(inst.opcode, Opcode::add);
         assert_eq!(inst.encode_type, EncodeType::RType);
     }
 }
