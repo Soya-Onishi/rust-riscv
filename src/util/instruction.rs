@@ -338,6 +338,102 @@ impl Instruction {
         )
     }
 
+    fn mul(&self, core: &mut Core) -> Result<(), Exception> {
+        self.rs1_rs2_ops(
+            core,
+            |rs1, rs2| rs1.wrapping_mul(rs2)
+        )
+    }
+
+    fn mulh(&self, core: &mut Core) -> Result<(), Exception> {
+        self.rs1_rs2_ops(
+            core,
+            |rs1, rs2| {
+                let rs1 = rs1 as u64;
+                let rs2 = rs2 as u64;
+
+                let result = rs1.wrapping_mul(rs2);
+                result.truncate(63, 32) as u32
+            }
+        )
+    }
+
+    fn mulhu(&self, core: &mut Core) -> Result<(), Exception> {
+        self.rs1_rs2_ops(
+            core,
+            |rs1, rs2| {
+                let rs1 = rs1 as u64;
+                let rs2 = rs2 as u64;
+
+                let result = rs1.wrapping_mul(rs2);
+                result.truncate(63, 32) as u32
+            }
+        )
+    }
+
+    fn mulhsu(&self, core: &mut Core) -> Result<(), Exception> {
+        self.rs1_rs2_ops(
+            core,
+            |rs1, rs2| {
+                let rs1 = rs1 as u64;
+                let rs2 = rs2 as u64;
+
+                let result = rs1.wrapping_mul(rs2);
+                result.truncate(63, 32) as u32
+            }
+        )
+    }
+
+    fn div(&self, core: &mut Core) -> Result<(), Exception> {
+        self.rs1_rs2_ops(
+            core,
+            |rs1, rs2| {
+                let result = match (rs1 as i32, rs2 as i32) {
+                    (_, 0) => -1,
+                    (std::i32::MIN, -1) => std::i32::MIN,
+                    (x, y) => x / y,
+                };
+
+                result as u32
+            }
+        )
+    }
+
+    fn divu(&self, core: &mut Core) -> Result<(), Exception> {
+        self.rs1_rs2_ops(
+            core,
+            |rs1, rs2| {
+                if rs2 == 0 { std::u32::MAX }
+                else        { rs1 / rs2 }
+            }
+        )
+    }
+
+    fn rem(&self, core: &mut Core) -> Result<(), Exception> {
+        self.rs1_rs2_ops(
+            core,
+            |rs1, rs2| {
+                let result = match (rs1 as i32, rs2 as i32) {
+                    (x, 0) => x,
+                    (std::i32::MIN, -1) => 0,
+                    (x, y) => x % y,
+                };
+
+                result as u32
+            }
+        )
+    }
+
+    fn remu(&self, core: &mut Core) -> Result<(), Exception> {
+        self.rs1_rs2_ops(
+            core,
+            |rs1, rs2| {
+                if rs2 == 0 { rs1 }
+                else        { rs1 % rs2 }
+            }
+        )
+    }
+
     fn csr_manipulate(
         &self,
         core: &mut Core,
@@ -516,7 +612,7 @@ impl std::fmt::Display for EncodeType {
 }
 
 macro_rules! opcode_list {
-    ($({ $opcode: ident, $encode_type: ident, op: $op: literal $(, f3: $f3: literal)? $(, f7: $f7: literal)? $(, f12: $f12: literal)? $(, [ $upper: literal, $lower: literal ] : $expect : literal),* $(,)?}),+) => {
+    ($({ $opcode: ident, $encode_type: ident, op: $op: literal $(, f3: $f3: literal)? $(, f7: $f7: literal)? $(, f12: $f12: literal)? $(, [ $upper: literal, $lower: literal ] : $expect : literal),* $(,)?}),+ $(,)?) => {
         impl Instruction {
             fn new_impl(inst: u32) -> Result<Instruction, Exception> {
                 let opcode = inst.truncate(6, 0);
@@ -564,6 +660,7 @@ macro_rules! opcode_list {
 }
 
 opcode_list!(
+    // RV32I standard isa
     {     lui, UType, op: 0b0110111, },
     {   auipc, UType, op: 0b0010111, },
     {     jal, JType, op: 0b1101111, },
@@ -606,26 +703,22 @@ opcode_list!(
     {   ecall, IType, op: 0b1110011, f12: 0b0000_0000_0000, [19, 7]: 0, },
     {  ebreak, IType, op: 0b1110011, f12: 0b0000_0000_0001, [19, 7]: 0, },
     {    mret, IType, op: 0b1110011, f12: 0b0000_0000_0001, [19, 7]: 0, },
+
+    // Zcsr extension isa
     {   csrrw, IType, op: 0b1110011, f3: 0b001, },
     {   csrrs, IType, op: 0b1110011, f3: 0b010, },
     {   csrrc, IType, op: 0b1110011, f3: 0b011, },
     {  csrrwi, IType, op: 0b1110011, f3: 0b101, },
     {  csrrsi, IType, op: 0b1110011, f3: 0b110, },
-    {  csrrci, IType, op: 0b1110011, f3: 0b111, }
+    {  csrrci, IType, op: 0b1110011, f3: 0b111, },
+
+    // M extension isa
+    {     mul, RType, op: 0b0110011, f3: 0b000, f7: 0b000_0001 },
+    {    mulh, RType, op: 0b0110011, f3: 0b001, f7: 0b000_0001 },
+    {  mulhsu, RType, op: 0b0110011, f3: 0b010, f7: 0b000_0001 },
+    {   mulhu, RType, op: 0b0110011, f3: 0b011, f7: 0b000_0001 },
+    {     div, RType, op: 0b0110011, f3: 0b100, f7: 0b000_0001 },
+    {    divu, RType, op: 0b0110011, f3: 0b101, f7: 0b000_0001 },
+    {     rem, RType, op: 0b0110011, f3: 0b110, f7: 0b000_0001 },
+    {    remu, RType, op: 0b0110011, f3: 0b111, f7: 0b000_0001 },
 );
-
-#[cfg(test)]
-mod test {
-    use super::{
-        Instruction,
-        Opcode,
-        EncodeType,
-    };
-
-    #[test]
-    fn make_add_inst() {
-        let inst = Instruction::new(0x0000_0033).unwrap();
-        assert_eq!(inst.opcode, Opcode::add);
-        assert_eq!(inst.encode_type, EncodeType::RType);
-    }
-}
