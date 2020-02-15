@@ -13,6 +13,7 @@ pub struct Instruction {
 }
 
 impl Instruction {
+    /*
     pub fn new(inst: u32) -> Result<Instruction, Exception> {
         let opcode = inst.truncate(6, 0);
         let funct3 = inst.truncate(14, 12);
@@ -120,6 +121,7 @@ impl Instruction {
 
         Ok(Instruction { raw_code: inst, opcode, encode_type })
     }
+    */
 
     fn rs1(&self) -> usize {
         match self.encode_type {
@@ -207,13 +209,6 @@ impl Instruction {
             self.imm(),
         );
 
-        instruction_exec_log(format!(
-            "0x{:08x} lui imm: 0x{:08x} rd: {}",
-            core.pc,
-            self.imm(),
-            self.rd()
-        ));
-
         Ok(())
     }
 
@@ -222,8 +217,6 @@ impl Instruction {
             self.rd(),
             self.imm().wrapping_add(core.pc),
         );
-
-        instruction_exec_log(format!("auipc imm: 0x{:08x} pc: 0x{:08x} rd: {}", self.imm(), core.pc, self.rd()));
 
         Ok(())
     }
@@ -262,18 +255,6 @@ impl Instruction {
             };
 
         core.branch_manager.push_queue(branch_dest);
-
-        instruction_exec_log(format!(
-            "0x{:08x} {} rs1[{}] rs2[{}] (rs1: 0x{:08x}, rs2: 0x{:08x}, dest: 0x{:08x}, res: {})",
-            core.pc,
-            self.opcode,
-            self.rs1(),
-            self.rs2(),
-            rs1_value,
-            rs2_value,
-            branch_dest,
-            f(rs1_value, rs2_value)
-        ));
 
         Ok(())
     }
@@ -343,17 +324,6 @@ impl Instruction {
 
         core.ireg.write(self.rd(), result);
 
-        instruction_exec_log(format!(
-            "0x{:08x} {} rd[{}] rs1[{}] (rs1: 0x{:08x}, imm: 0x{:08x}, res: 0x{:08x})",
-            core.pc,
-            self.opcode,
-            self.rd(),
-            self.rs1(),
-            rs1_value,
-            imm_value,
-            result
-        ));
-
         Ok(())
     }
 
@@ -415,19 +385,6 @@ impl Instruction {
         let result = f(rs1_value, rs2_value);
 
         core.ireg.write(self.rd(), result);
-
-        instruction_exec_log(format!(
-            "0x{:08x} {} rd[{}] rs1[{}] rs2[{}] (rs1: 0x{:08x}, rs2: 0x{:08x}, res: 0x{:08x})",
-            core.pc,
-            self.opcode,
-            self.rd(),
-            self.rs1(),
-            self.rs2(),
-            rs1_value,
-            rs2_value,
-            result
-        ));
-
 
         Ok(())
     }
@@ -696,7 +653,7 @@ fn arithmetic_right_shift(value: u32, shamt: u32) -> u32 {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum EncodeType {
     RType,
     IType,
@@ -712,6 +669,7 @@ impl std::fmt::Display for EncodeType {
     }
 }
 
+/*
 #[allow(non_camel_case_types)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Opcode {
@@ -764,371 +722,111 @@ enum Opcode {
     CSRRCI,
     MRET,
 }
+*/
 
-impl fmt::Display for Opcode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", format!("{:?}", self).to_lowercase())
+macro_rules! opcode_list {
+    ($({ $opcode: ident, $encode_type: ident, op: $op: literal $(, f3: $f3: literal)? $(, f7: $f7: literal)? $(, f12: $f12: literal)? $(, [ $upper: literal, $lower: literal ] : $expect : literal),* $(,)?}),+) => {
+        impl Instruction {
+            pub fn new(inst: u32) -> Result<Instruction, Exception> {
+                let opcode = inst.truncate(6, 0);
+                let funct3 = inst.truncate(14, 12);
+                let funct7 = inst.truncate(31, 25);
+                let funct12 = inst.truncate(31, 20);
+
+                match inst {
+                    $(
+                        _ if opcode == $op $(&& funct3 == $f3)? $(&& funct7 == $f7)? $(&& funct12 == $f12)? $(&& inst.truncate($upper, $lower) == $expect)* => {
+                            return Ok(Instruction {
+                                raw_code: inst,
+                                opcode: Opcode::$opcode,
+                                encode_type: EncodeType::$encode_type
+                            })
+                        }
+                    )+
+                    _ => return Err(Exception::IllegalInstruction(inst)),
+                }
+            }
+        }
+
+        #[allow(non_camel_case_types)]
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        enum Opcode {
+            $(
+                $opcode,
+            )+
+        }
+
+        impl fmt::Display for Opcode {
+            fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+                write!(f, "{}", format!("{:?}", self).to_lowercase())
+            }
+        }
     }
 }
 
-fn instruction_exec_log(str: String) {
-    // println!("[execute instruction] {}", str);
-}
+opcode_list!(
+    { LUI, UType, op: 0b0110111, },
+    { AUIPC, UType, op: 0b0010111, },
+    { JAL, JType, op: 0b1101111, },
+    { JALR, IType, op: 0b1101111, f3: 0b000, },
+    { BEQ, BType, op: 0b1100011, f3: 0b000, },
+    { BNE, BType, op: 0b1100011, f3: 0b001, },
+    { BLT, BType, op: 0b1100011, f3: 0b100, },
+    { BGE, BType, op: 0b1100011, f3: 0b101, },
+    { BLTU, BType, op: 0b1100011, f3: 0b110, },
+    { BGEU, BType, op: 0b1100011, f3: 0b111, },
+    { LB, IType, op: 0b0000011, f3: 0b000, },
+    { LH, IType, op: 0b0000011, f3: 0b001, },
+    { LW, IType, op: 0b0000011, f3: 0b010, },
+    { LBU, IType, op: 0b0000011, f3: 0b100, },
+    { LHU, IType, op: 0b0000011, f3: 0b101, },
+    { SB, IType, op: 0b0100011, f3: 0b000, },
+    { SH, IType, op: 0b0100011, f3: 0b001, },
+    { SW, IType, op: 0b0100011, f3: 0b010, },
+    { ADDI, IType, op: 0b0010011, f3: 0b000, },
+    { SLTI, IType, op: 0b0010011, f3: 0b010, },
+    { SLTIU, IType, op: 0b0010011, f3: 0b011, },
+    { XORI, IType, op: 0b0010011, f3: 0b100, },
+    { ORI, IType, op: 0b0010011, f3: 0b110, },
+    { ANDI, IType, op: 0b0010011, f3: 0b111, },
+    { SLLI, IType, op: 0b0010011, f3: 0b001, f7: 0b000_0000, },
+    { SRLI, IType, op: 0b0010011, f3: 0b101, f7: 0b000_0000, },
+    { SRAI, IType, op: 0b0010011, f3: 0b101, f7: 0b010_0000, },
+    { ADD, RType, op: 0b0110011, f3: 0b000, f7: 0b000_0000, },
+    { SUB, RType, op: 0b0110011, f3: 0b000, f7: 0b010_0000, },
+    { SLL, RType, op: 0b0110011, f3: 0b001, f7: 0b000_0000, },
+    { SLT, RType, op: 0b0110011, f3: 0b010, f7: 0b000_0000, },
+    { SLTU, RType, op: 0b0110011, f3: 0b011, f7: 0b000_0000, },
+    { XOR, RType, op: 0b0110011, f3: 0b100, f7: 0b000_0000, },
+    { SRL, RType, op: 0b0110011, f3: 0b101, f7: 0b000_0000, },
+    { SRA, RType, op: 0b0110011, f3: 0b101, f7: 0b010_0000, },
+    { OR, RType, op: 0b0110011, f3: 0b110, f7: 0b000_0000, },
+    { AND, RType, op: 0b0110011, f3: 0b111, f7: 0b000_0000, },
+    { FENCE, IType, op: 0b0001111, f3: 0b000, },
+    { FENCE_I, IType, op: 0b0001111, f3: 0b001, },
+    { ECALL, IType, op: 0b1110011, f12: 0b0000_0000_0000, [19, 7]: 0, },
+    { EBREAK, IType, op: 0b1110011, f12: 0b0000_0000_0001, [19, 7]: 0, },
+    { MRET, IType, op: 0b1110011, f12: 0b0000_0000_0001, [19, 7]: 0, },
+    { CSRRW, IType, op: 0b1110011, f3: 0b001, },
+    { CSRRS, IType, op: 0b1110011, f3: 0b010, },
+    { CSRRC, IType, op: 0b1110011, f3: 0b011, },
+    { CSRRWI, IType, op: 0b1110011, f3: 0b101, },
+    { CSRRSI, IType, op: 0b1110011, f3: 0b110, },
+    { CSRRCI, IType, op: 0b1110011, f3: 0b111, }
+);
 
-/*
 #[cfg(test)]
 mod test {
-    extern crate bitwise;
-
-    use super::{Instruction, Opcode};
-    use rand::{Rng, SeedableRng, rngs::StdRng};
-
-    use bitwise::*;
-
-    fn bit_truncate(bit: u32, upper: u32, lower: u32) -> u32 {
-        let mask = if (upper + 1) > 31 { 0 } else { 1_u32 << (upper + 1) };
-        (bit & (mask.wrapping_sub(1) ^ 1_u32.wrapping_shl(lower).wrapping_sub(1))) >> lower
-    }
-
-    fn sign_ext(bit: u32, index: u32) -> u32 {
-        if bit_truncate(bit, index, index) == 1 {
-            bit | (0_u32.wrapping_sub(1) ^ 1_u32.wrapping_shl(index).wrapping_sub(1))
-        } else {
-            bit
-        }
-    }
-
-    fn construct_utype_inst(opcode_value: u32, rng: &mut StdRng) -> (Instruction, u32, u32){
-        let imm: u32 = rng.gen::<u32>() & 0b1111_1111_1111_1111_1111_0000_0000_0000;
-        let rd: u32 = rng.gen_range(0, 31);
-        let inst = Bit::new(imm | (rd << 7) | opcode_value);
-        let inst = match Instruction::new(inst) {
-            Ok(i) => i,
-            Err(err) => panic!(err)
-        };
-
-        (inst, imm, rd)
-    }
-
-    fn construct_btype_inst(opcode: u32, funct3: u32, rng: &mut StdRng) -> (Instruction, Bit) {
-        let imm: u32 = rng.gen::<u32>() & 0b1111_1110_0000_0000_0000_1111_1000_0000;
-        let rs1: u32 = rng.gen_range(0, 31);
-        let rs2: u32 = rng.gen_range(0, 31);
-
-        let inst = Bit::new(imm | (rs1 << 15) | (rs2 << 20) | (funct3 << 12) | opcode);
-        let inst = match Instruction::new(inst) {
-            Ok(i) => i,
-            Err(err) => panic!(err),
-        };
-
-        let imm = {
-            println!("{:032b}", imm);
-
-            let bit12 = bit_truncate(imm, 31, 31) << 12;
-            let bit11 = bit_truncate(imm, 7, 7) << 11;
-            let bit10_5 = bit_truncate(imm, 30, 25) << 5;
-            let bit4_1 = bit_truncate(imm, 11, 8) << 1;
-
-            sign_ext(bit12 | bit11 | bit10_5 | bit4_1, 12)
-        };
-
-        (inst, Bit::new(imm))
-    }
-
-    fn construct_jtype_inst(opcode: u32, rng: &mut StdRng) -> (Instruction, Bit, Bit) {
-        let inst_imm = rng.gen::<u32>() & 0b1111_1111_1111_1111_1111_0000_0000_0000;
-        let imm = {
-            let bit20 = bit_truncate(inst_imm, 31, 31) << 20;
-            let bit10_1 = bit_truncate(inst_imm, 30, 21) << 1;
-            let bit11 = bit_truncate(inst_imm, 20, 20) << 11;
-            let bit19_12 = bit_truncate(inst_imm, 19, 12) << 12;
-
-            sign_ext((bit20 | bit19_12 | bit11 | bit10_1), 20)
-        };
-        let rd = rng.gen_range(0, 31);
-        let inst = Bit::new(inst_imm | (rd << 7) | opcode);
-        let inst = match Instruction::new(inst) {
-            Ok(i) => i,
-            Err(err) => panic!(err)
-        };
-
-        (inst, Bit::new(imm), Bit::new(rd))
-    }
-
-    fn construct_itype_inst(op: Opcode, opcode: u32, funct3: u32, rng: &mut StdRng) {
-        let imm = rng.gen::<u32>() & 0b1111_1111_1111_0000_0000_0000_0000_0000;
-        let rs1 = rng.gen_range(0, 31);
-        let rd = rng.gen_range(0, 31);
-        let inst = imm | (rs1 << 15) | (rd << 7) | (funct3 << 12) | opcode;
-        let inst = Bit::new(inst);
-        let inst = match Instruction::new(inst) {
-            Ok(i) => i,
-            Err(err) => panic!(err),
-        };
-
-        let imm = sign_ext(bit_truncate(imm, 31, 20), 11);
-
-        assert_eq!(inst.opcode, op);
-        assert_eq!(inst.imm().unwrap(), Bit::new(imm));
-        assert_eq!(inst.rd().unwrap(), Bit::new(rd));
-        assert_eq!(inst.rs1().unwrap(), Bit::new(rs1));
-        assert_eq!(inst.funct3().unwrap(), Bit::new(funct3));
-    }
-
-    fn construct_itype_insts(op: Opcode, opcode: u32, funct3: u32) {
-        let mut rng = SeedableRng::seed_from_u64(0);
-        for _ in 0..100 {
-            construct_itype_inst(op, opcode, funct3, &mut rng);
-        }
-    }
-
-    fn construct_shift_inst(opcode: Opcode, funct3: u32, funct7: u32, rng: &mut StdRng) {
-        let shamt = rng.gen_range(0, 31);
-        let rs1 = rng.gen_range(0, 31);
-        let rd = rng.gen_range(0, 31);
-        let inst = (funct7 << 25) | (shamt << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | 0b0010011;
-        let inst = match Instruction::new(Bit::new(inst)) {
-            Ok(i) => i,
-            Err(err) => panic!(err)
-        };
-
-        assert_eq!(inst.opcode, opcode);
-        assert_eq!(inst.imm().unwrap(), Bit::new(shamt | (funct7 << 5)));
-        assert_eq!(inst.rs1().unwrap(), Bit::new(rs1));
-        assert_eq!(inst.rd().unwrap(), Bit::new(rd));
-        assert_eq!(inst.funct3().unwrap(), Bit::new(funct3));
-    }
-
-    fn construct_shift_insts(opcode: Opcode, funct3: u32, funct7: u32) {
-        let mut rng = SeedableRng::seed_from_u64(0);
-
-        for _ in 0..100 {
-            construct_shift_inst(opcode, funct3, funct7, &mut rng);
-        }
-    }
-
-    fn construct_rtype_inst(op: Opcode, funct3: u32, funct7: u32, rng: &mut StdRng) {
-        let rs1 = rng.gen_range(0, 31);
-        let rs2 = rng.gen_range(0, 31);
-        let rd = rng.gen_range(0, 31);
-        let opcode = 0b0110011;
-        let inst = (funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode;
-        let inst = match Instruction::new(Bit::new(inst)) {
-            Ok(i) => i,
-            Err(err) => panic!(err)
-        };
-
-        assert_eq!(inst.opcode, op);
-        assert_eq!(inst.rs1().unwrap(), Bit::new(rs1));
-        assert_eq!(inst.rs2().unwrap(), Bit::new(rs2));
-        assert_eq!(inst.rd().unwrap(), Bit::new(rd));
-        assert_eq!(inst.funct3().unwrap(), Bit::new(funct3));
-        assert_eq!(inst.funct7().unwrap(), Bit::new(funct7));
-    }
-
-    fn construct_rtype_insts(opcode: Opcode, funct3: u32, funct7: u32) {
-        let mut rng = SeedableRng::seed_from_u64(0);
-        for _ in 0..100 {
-            construct_rtype_inst(opcode, funct3, funct7, &mut rng);
-        }
-    }
+    use super::{
+        Instruction,
+        Opcode,
+        EncodeType,
+    };
 
     #[test]
-    fn construct_lui() {
-        let mut rng = SeedableRng::seed_from_u64(0);
-        let lui_op: u32 = 0b0110111;
-        for _ in 0..100 {
-            let (inst, imm, rd) = construct_utype_inst(lui_op, &mut rng);
-            assert_eq!(inst.rd().unwrap(), Bit::new(rd));
-            assert_eq!(inst.imm().unwrap(), Bit::new(imm));
-        }
-    }
-
-    #[test]
-    fn construct_auipc() {
-        let mut rng = SeedableRng::seed_from_u64(0);
-        let auipc_op: u32 = 0b0010111;
-        for _ in 0..100 {
-            let (inst, imm, rd) = construct_utype_inst(auipc_op, &mut rng);
-            assert_eq!(inst.opcode, Opcode::AUIPC);
-            assert_eq!(inst.rd().unwrap(), Bit::new(rd));
-            assert_eq!(inst.imm().unwrap(), Bit::new(imm));
-        }
-    }
-
-    fn construct_branch(opcode: Opcode, funct3: u32) {
-        let mut rng = SeedableRng::seed_from_u64(0);
-        for _ in 0..100 {
-            let (inst, imm) = construct_btype_inst(0b1100011, funct3, &mut rng);
-            assert_eq!(inst.opcode, opcode);
-            assert_eq!(inst.imm().unwrap(), imm);
-        }
-    }
-
-    #[test]
-    fn construct_beq() {
-        construct_branch(Opcode::BEQ, 0b000);
-    }
-
-    #[test]
-    fn construct_bne() {
-        construct_branch(Opcode::BNE, 0b001);
-    }
-
-    #[test]
-    fn construct_blt() {
-        construct_branch(Opcode::BLT, 0b100);
-    }
-
-    #[test]
-    fn construct_bge() {
-        construct_branch(Opcode::BGE, 0b101);
-    }
-
-    #[test]
-    fn construct_bltu() {
-        construct_branch(Opcode::BLTU,0b110);
-    }
-
-    #[test]
-    fn construct_bgeu() {
-        construct_branch(Opcode::BGEU, 0b111);
-    }
-
-    #[test]
-    fn construct_jal() {
-        let mut rng = SeedableRng::seed_from_u64(0);
-        for _ in 0..100 {
-            let (inst, imm, rd) = construct_jtype_inst(0b1101111, &mut rng);
-            assert_eq!(inst.opcode, Opcode::JAL);
-            assert_eq!(inst.imm().unwrap(), imm);
-            assert_eq!(inst.rd().unwrap(), rd);
-        };
-    }
-
-    #[test]
-    fn construct_jalr() {
-        construct_itype_insts(Opcode::JALR, 0b1100111, 0b000);
-    }
-
-    #[test]
-    fn construct_lb() {
-        construct_itype_insts(Opcode::LB, 0b0000011, 0b000);
-    }
-
-    #[test]
-    fn construct_lh() {
-        construct_itype_insts(Opcode::LH, 0b0000011, 0b001);
-    }
-
-    #[test]
-    fn construct_lw() {
-        construct_itype_insts(Opcode::LW, 0b0000011, 0b010);
-    }
-
-    #[test]
-    fn construct_lbu() {
-        construct_itype_insts(Opcode::LBU, 0b0000011, 0b100);
-    }
-
-    #[test]
-    fn construct_lhu() {
-        construct_itype_insts(Opcode::LHU, 0b0000011, 0b101);
-    }
-
-    #[test]
-    fn construct_addi() {
-        construct_itype_insts(Opcode::ADDI, 0b0010011, 0b000);
-    }
-
-    #[test]
-    fn construct_slti() {
-        construct_itype_insts(Opcode::SLTI, 0b0010011, 0b010);
-    }
-
-    #[test]
-    fn construct_sltiu() {
-        construct_itype_insts(Opcode::SLTIU, 0b0010011, 0b011);
-    }
-
-    #[test]
-    fn construct_xori() {
-        construct_itype_insts(Opcode::XORI, 0b0010011, 0b100);
-    }
-
-    #[test]
-    fn construct_ori() {
-        construct_itype_insts(Opcode::ORI, 0b0010011, 0b110);
-    }
-
-    #[test]
-    fn construct_andi() {
-        construct_itype_insts(Opcode::ANDI, 0b0010011, 0b111);
-    }
-
-    #[test]
-    fn construct_slli() {
-        construct_shift_insts(Opcode::SLLI, 0b001, 0b000_0000);
-    }
-
-    #[test]
-    fn construct_srli() {
-        construct_shift_insts(Opcode::SRLI, 0b101, 0b000_0000);
-    }
-
-    #[test]
-    fn construct_srai() {
-        construct_shift_insts(Opcode::SRAI, 0b101, 0b010_0000);
-    }
-
-    #[test]
-    fn construct_add() {
-        construct_rtype_insts(Opcode::ADD, 0b000, 0b000_0000);
-    }
-
-    #[test]
-    fn construct_sub() {
-        construct_rtype_insts(Opcode::SUB, 0b000, 0b010_0000);
-    }
-
-    #[test]
-    fn construct_sll() {
-        construct_rtype_insts(Opcode::SLL, 0b001, 0b000_0000);
-    }
-
-    #[test]
-    fn construct_slt() {
-        construct_rtype_insts(Opcode::SLT, 0b010, 0b000_0000);
-    }
-
-    #[test]
-    fn construct_sltu() {
-        construct_rtype_insts(Opcode::SLTU, 0b011, 0b000_0000);
-    }
-
-    #[test]
-    fn construct_xor() {
-        construct_rtype_insts(Opcode::XOR, 0b100, 0b000_0000);
-    }
-
-    #[test]
-    fn construct_srl() {
-        construct_rtype_insts(Opcode::SRL, 0b101, 0b000_0000);
-    }
-
-    #[test]
-    fn construct_sra() {
-        construct_rtype_insts(Opcode::SRA, 0b101, 0b010_0000);
-    }
-
-    #[test]
-    fn construct_or() {
-        construct_rtype_insts(Opcode::OR, 0b110, 0b000_0000);
-    }
-
-    #[test]
-    fn construct_and() {
-        construct_rtype_insts(Opcode::AND, 0b111, 0b000_0000);
+    fn make_add_inst() {
+        let inst = Instruction::test_decode(0x0000_0033).unwrap();
+        assert_eq!(inst.opcode, Opcode::ADD);
+        assert_eq!(inst.encode_type, EncodeType::RType);
     }
 }
-*/
