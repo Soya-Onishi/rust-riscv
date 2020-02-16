@@ -349,8 +349,8 @@ impl Instruction {
         self.rs1_rs2_ops(
             core,
             |rs1, rs2| {
-                let rs1 = rs1 as u64;
-                let rs2 = rs2 as u64;
+                let rs1 = (rs1 as u64).sign_ext(31);
+                let rs2 = (rs2 as u64).sign_ext(31);
 
                 let result = rs1.wrapping_mul(rs2);
                 result.truncate(63, 32) as u32
@@ -375,10 +375,10 @@ impl Instruction {
         self.rs1_rs2_ops(
             core,
             |rs1, rs2| {
-                let rs1 = rs1 as u64;
+                let rs1 = (rs1 as u64).sign_ext(31);
                 let rs2 = rs2 as u64;
 
-                let result = rs1.wrapping_mul(rs2);
+                let result = rs1.wrapping_mul(rs2) as u64;
                 result.truncate(63, 32) as u32
             }
         )

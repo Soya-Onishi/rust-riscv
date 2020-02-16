@@ -44,7 +44,7 @@ impl Core {
         }
     }
 
-    pub fn execute(&mut self) {        
+    pub fn execute(&mut self) {
         match self.execute_one_instrunction() {
             Ok(()) => match self.branch_manager.pop_queue() {
                 Some(addr) => self.pc = addr,
