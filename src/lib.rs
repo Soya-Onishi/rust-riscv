@@ -13,29 +13,29 @@ use std::{
 };
 
 struct Emulator {
-    pub core: core::Core,
+    core: core::Core,
     elf_bin: Vec<u8>,
     breakpoints: Vec<u32>,
     labels: HashMap<String, u32>,
 }
 
 impl Emulator {
-    pub fn new_with_elf_file(filename: String) -> Result<Emulator, String> {
-        let binary = fs::read(filename).unwrap();
+    pub fn new_with_elf_file(filename: String) -> Result<Emulator, Box<dyn error::Error>> {
+        let binary = fs::read(filename)?;
 
         Emulator::new_with_binary(binary)
     }
 
-    pub fn new_with_binary(binary: Vec<u8>) -> Result<Emulator, String> {
+    pub fn new_with_binary(binary: Vec<u8>) -> Result<Emulator, Box<dyn error::Error>> {
         let elf = match Object::parse(&binary) {            
             Ok(Object::Elf(elf)) => elf,
-            _                    => return Err("not elf binary".to_string()),
+            _                    => return Err(Box::new(ErrorMsg::new("not elf binary".to_string()))),
         };
 
         let core = Emulator::make_core(&elf, &binary);
         let labels = match Emulator::get_label(&elf) {
             Ok(labels) => labels,
-            Err(e) => return Err(e.to_string()),
+            Err(e) => return Err(e),
         };
 
         Ok(Emulator {
@@ -101,9 +101,11 @@ impl Emulator {
     }
 
     pub fn step(&mut self, num: u32) {
-        for _ in 0..num {
-            self.core.execute();
-        }        
+        if self.core.is_turnon {
+            for _ in 0..num {
+                self.core.execute();
+            }
+        }
     }
 
     fn is_breakpoint(&self, pc: u32) -> bool {
@@ -117,7 +119,7 @@ impl Emulator {
         }
     }
 
-    pub fn set_breakpoint_with_value(&mut self, addr: u32) {
+    pub fn set_breakpoint_with_addr(&mut self, addr: u32) {
         self.breakpoints.push(addr)
     }
 }
@@ -140,3 +142,91 @@ impl fmt::Display for ErrorMsg {
 }
 
 impl error::Error for ErrorMsg { }
+
+
+#[cfg(test)]
+mod test {
+    extern crate paste;
+
+    use crate::Emulator;
+
+    fn run_test(kind: &str, name: &str) -> Emulator {
+        let mut emu = Emulator::new_with_elf_file(format!("test_bin/rv32{}-p-{}", kind, name)).unwrap();
+        emu.run();
+
+        emu
+    }
+
+    macro_rules! make_test {
+        ($($kind: ident { $($name: ident),* } ), *) => {
+            paste::item! {$(
+                #[cfg(test)]
+                mod [<rv32$kind>] {
+                    paste::item! {
+                        $(
+                            #[test]
+                            fn [<$name>]() {
+                                let emu = super::run_test(std::stringify!($kind), std::stringify!($name));
+                                let gp = emu.core.ireg.read(3);
+
+                                assert_eq!(gp, 1, "\nfailed at test{}", gp >> 1);
+                            }
+                        )*
+                    }
+                }
+            )*}
+        }
+    }
+
+    make_test!(
+        ui {
+            add,
+            addi,
+            auipc,
+            beq,
+            bge,
+            bgeu,
+            blt,
+            bltu,
+            bne,
+            fence_i,
+            jal,
+            jalr,
+            lb,
+            lbu,
+            lh,
+            lhu,
+            lui,
+            lw,
+            or,
+            ori,
+            sb,
+            sh,
+            simple,
+            sll,
+            slli,
+            slt,
+            slti,
+            sltiu,
+            sltu,
+            sra,
+            srai,
+            srl,
+            srli,
+            sub,
+            sw,
+            xor,
+            xori
+        },
+        um {
+            mul,
+            mulh,
+            mulhsu,
+            mulhu,
+            div,
+            divu,
+            rem,
+            remu
+        }
+    );
+}
