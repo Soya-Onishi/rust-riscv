@@ -13,14 +13,14 @@ use super::util::{
 
 use csr::*;
 use reg::RegFile;
-use memory::Memory;
+use memory::MMU;
 use branch_manager::BranchManager;
 
 pub struct Core {
     pub pc: u32,
     pub ireg: RegFile<u32>,
     pub csr: CSRFile,
-    pub memory: Memory,
+    pub memory: MMU,
     pub branch_manager: BranchManager,
     pub use_builtin_exception_handler: bool,
     pub is_turnon: bool,
@@ -30,7 +30,7 @@ impl Core {
     pub fn new(delay_cycle: usize, use_builtin_exception_handler: bool) -> Core {
         let ireg = RegFile::<u32>::new();
         let csr = CSRFile::new();
-        let memory = Memory::new();
+        let memory = MMU::new();
         let branch_manager = BranchManager::new(delay_cycle);
 
         Core {

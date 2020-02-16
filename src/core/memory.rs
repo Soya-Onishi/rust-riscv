@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-pub struct Memory {
+pub struct MMU {
     mem: HashMap<usize, [u8; 2048]>,
 }
 
-impl Memory {
-    pub fn new() -> Memory {
-        Memory { mem: HashMap::new() }
+impl MMU {
+    pub fn new() -> MMU {
+        MMU { mem: HashMap::new() }
     }
 
     pub fn read(&self, address: u32) -> u8 {
