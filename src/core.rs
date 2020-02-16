@@ -20,7 +20,7 @@ pub struct Core {
     pub pc: u32,
     pub ireg: RegFile<u32>,
     pub csr: CSRFile,
-    pub memory: MMU,
+    pub mmu: MMU,
     pub branch_manager: BranchManager,
     pub use_builtin_exception_handler: bool,
     pub is_turnon: bool,
@@ -37,7 +37,7 @@ impl Core {
             pc: 0,
             ireg,
             csr,
-            memory,
+            mmu: memory,
             branch_manager,
             use_builtin_exception_handler,
             is_turnon: true,
@@ -63,7 +63,7 @@ impl Core {
     }
 
     fn fetch(&self) -> Result<u32, Exception> {
-        self.memory.read_u32(self.pc)
+        self.mmu.read_u32(self.pc)
     }
 
     fn raise_exception(&mut self, exp: Exception) {

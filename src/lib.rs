@@ -59,7 +59,7 @@ impl Emulator {
                 let section_size = section.sh_size as u32;
 
                 for (index, &bin) in (0..section_size).zip(binary[elf_addr..].iter()) {
-                    core.memory.write_u8(exec_addr + index, bin);
+                    core.mmu.write_u8(exec_addr + index, bin);
                 }
             }
         }

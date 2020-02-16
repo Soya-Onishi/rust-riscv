@@ -178,7 +178,7 @@ impl Instruction {
     fn load<T: Into<u32>>(&self, core: &mut Core, byte_count: u32, use_sign_ext: bool, loader: impl Fn(&MMU, u32) -> Result<T, Exception>) -> Result<(), Exception> {
         let base_addr = core.ireg.read(self.rs1()).wrapping_add(self.imm());
 
-        let data = loader(&core.memory, base_addr)?.into();
+        let data = loader(&core.mmu, base_addr)?.into();
         let data =
             if use_sign_ext { data.sign_ext(8 * byte_count as u32 - 1) }
             else            { data };
@@ -196,7 +196,7 @@ impl Instruction {
     fn store<T>(&self, core: &mut Core, byte_size: u32, storer: impl Fn(&mut MMU, u32, T) -> Result<(), Exception>, caster: impl Fn(u32) -> T) -> Result<(), Exception> {
         let addr = core.ireg.read(self.rs1()).wrapping_add(self.imm());
         let data = core.ireg.read(self.rs2());
-        storer(&mut core.memory, addr, caster(data))
+        storer(&mut core.mmu, addr, caster(data))
 
         /*
         (0..byte_size)
@@ -437,8 +437,8 @@ impl Instruction {
     fn lr_w(&self, core: &mut Core) -> Result<(), Exception> {
         let addr = core.ireg.read(self.rs1());
 
-        core.memory.set_reservation(addr);
-        let data = core.memory.read_u32(addr)?;
+        core.mmu.set_reservation(addr);
+        let data = core.mmu.read_u32(addr)?;
 
         core.ireg.write(self.rd(), data);
 
@@ -449,14 +449,14 @@ impl Instruction {
         let addr = core.ireg.read(self.rs1());
         let data = core.ireg.read(self.rs2());
 
-        if core.memory.check_reservation(addr) {
-            core.memory.write_u32(addr, data)?;
+        if core.mmu.check_reservation(addr) {
+            core.mmu.write_u32(addr, data)?;
             core.ireg.write(self.rd(), 0);
-            core.memory.yield_reservation();
+            core.mmu.yield_reservation();
             Ok(())
         } else {
             core.ireg.write(self.rd(), 1);
-            core.memory.yield_reservation();
+            core.mmu.yield_reservation();
             Ok(())
         }
     }
@@ -503,12 +503,12 @@ impl Instruction {
 
     fn amo_operation(&self, core: &mut Core, op: impl Fn(u32, u32) -> u32) -> Result<(), Exception> {
         let addr = core.ireg.read(self.rs1());
-        let data = core.memory.read_u32(addr)?;
+        let data = core.mmu.read_u32(addr)?;
         let rs2_value = core.ireg.read(self.rs2());
 
         let stored_data = op(data, rs2_value);
 
-        core.memory.write_u32(addr, stored_data)?;
+        core.mmu.write_u32(addr, stored_data)?;
         core.ireg.write(self.rd(), data);
 
         Ok(())
