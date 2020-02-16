@@ -612,7 +612,7 @@ impl std::fmt::Display for EncodeType {
 }
 
 macro_rules! opcode_list {
-    ($({ $opcode: ident, $encode_type: ident, op: $op: literal $(, f3: $f3: literal)? $(, f7: $f7: literal)? $(, f12: $f12: literal)? $(, [ $upper: literal, $lower: literal ] : $expect : literal),* $(,)?}),+ $(,)?) => {
+    ($({ $opcode: ident, $encode_type: ident, op: $op: literal $(, f3: $f3: literal)? $(, f7: $f7: literal)? $(, f12: $f12: literal)? $(, [ $upper: literal, $lower: literal ] : $expect : literal)* $(,)?}),+ $(,)?) => {
         impl Instruction {
             fn new_impl(inst: u32) -> Result<Instruction, Exception> {
                 let opcode = inst.truncate(6, 0);
