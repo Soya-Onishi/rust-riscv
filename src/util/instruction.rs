@@ -193,7 +193,7 @@ impl Instruction {
     fn lbu(&self, core: &mut Core) -> Result<(), Exception> { self.load(core, 1, false, MMU::read_u8) }
     fn lhu(&self, core: &mut Core) -> Result<(), Exception> { self.load(core, 2, false, MMU::read_u16) }
 
-    fn store<T>(&self, core: &mut Core, byte_size: u32, storer: impl Fn(&mut MMU, u32, T) -> Result<(), Exception>, caster: impl Fn(u32) -> T) -> Result<(), Exception> {
+    fn store<T>(&self, core: &mut Core, storer: impl Fn(&mut MMU, u32, T) -> Result<(), Exception>, caster: impl Fn(u32) -> T) -> Result<(), Exception> {
         let addr = core.ireg.read(self.rs1()).wrapping_add(self.imm());
         let data = core.ireg.read(self.rs2());
         storer(&mut core.mmu, addr, caster(data))
@@ -208,9 +208,9 @@ impl Instruction {
         */
     }
 
-    fn sb(&self, core: &mut Core) -> Result<(), Exception> { self.store(core, 1, MMU::write_u8, |v| v as u8) }
-    fn sh(&self, core: &mut Core) -> Result<(), Exception> { self.store(core, 2, MMU::write_u16, |v| v as u16) }
-    fn sw(&self, core: &mut Core) -> Result<(), Exception> { self.store(core, 4, MMU::write_u32, |v| v) }
+    fn sb(&self, core: &mut Core) -> Result<(), Exception> { self.store(core, MMU::write_u8, |v| v as u8) }
+    fn sh(&self, core: &mut Core) -> Result<(), Exception> { self.store(core, MMU::write_u16, |v| v as u16) }
+    fn sw(&self, core: &mut Core) -> Result<(), Exception> { self.store(core, MMU::write_u32, |v| v) }
 
     fn rs1_imm_ops(&self, core: &mut Core, f: impl Fn(u32, u32) -> u32) -> Result<(), Exception> {
         let rs1_value = core.ireg.read(self.rs1());

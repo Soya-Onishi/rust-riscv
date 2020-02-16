@@ -3,8 +3,6 @@ pub mod reg;
 pub mod memory;
 pub mod branch_manager;
 
-use std::fs;
-use std::io;
 use super::util::{
     instruction::Instruction,
     bitwise::Bitwise,

@@ -5,7 +5,6 @@ extern crate goblin;
 use goblin::{Object, elf::Elf};
 
 use std::{
-    env,
     fs,    
     fmt,
     error,
@@ -72,7 +71,7 @@ impl Emulator {
     fn get_label(elf: &Elf) -> Result<HashMap<String, u32>, Box<dyn error::Error>> {
         let hashmap = elf.syms.iter().zip(0..)
             .filter(|(sym, num)| sym.st_shndx != *num)
-            .map(|(sym, num)| sym)
+            .map(|(sym, _)| sym)
             .filter(|sym| sym.st_type() & 4 == 0)
             .map(|sym| {
                 let name_result: Result<String, Box<dyn error::Error>> = match elf.strtab.get(sym.st_name) {
@@ -149,6 +148,12 @@ mod test {
     extern crate paste;
 
     use crate::Emulator;
+
+    #[test]
+    fn correct_pc() {
+        let mut emu = Emulator::new_with_elf_file("test_bin/rv32ui-p-add".to_string()).unwrap();
+        assert_eq!(emu.core.pc, 0x8000_0000);
+    }
 
     fn run_test(kind: &str, name: &str) -> Emulator {
         let mut emu = Emulator::new_with_elf_file(format!("test_bin/rv32{}-p-{}", kind, name)).unwrap();
