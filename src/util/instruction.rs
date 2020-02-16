@@ -4,7 +4,7 @@ use std::fmt;
 
 use super::bitwise::Bitwise;
 use super::exception::Exception;
-use super::super::core::Core;
+use crate::core::{Core, memory::MMU};
 use crate::core::csr::M_E_PC;
 
 pub struct Instruction {
@@ -175,14 +175,10 @@ impl Instruction {
     fn bltu(&self, core: &mut Core) -> Result<(), Exception> { self.branch(core, |a, b| a < b) }
     fn bgeu(&self, core: &mut Core) -> Result<(), Exception> { self.branch(core, |a, b| a >= b) }
 
-    fn load(&self, core: &mut Core, byte_count: u32, use_sign_ext: bool) -> Result<(), Exception> {
+    fn load<T: Into<u32>>(&self, core: &mut Core, byte_count: u32, use_sign_ext: bool, loader: impl Fn(&MMU, u32) -> Result<T, Exception>) -> Result<(), Exception> {
         let base_addr = core.ireg.read(self.rs1()).wrapping_add(self.imm());
-        let data = (0..byte_count).map(|offset| {
-            core.memory.read(base_addr.wrapping_add(offset)) as u32
-        }).collect::<Vec<u32>>();
 
-
-        let data = Bitwise::concat(&data, &vec![8; byte_count as usize]);
+        let data = loader(&core.memory, base_addr)?.into();
         let data =
             if use_sign_ext { data.sign_ext(8 * byte_count as u32 - 1) }
             else            { data };
@@ -191,26 +187,30 @@ impl Instruction {
         Ok(())
     }
 
-    fn lb(&self, core: &mut Core) -> Result<(), Exception> { self.load(core, 1, true) }
-    fn lh(&self, core: &mut Core) -> Result<(), Exception> { self.load(core, 2, true) }
-    fn lw(&self, core: &mut Core) -> Result<(), Exception> { self.load(core, 4, true) }
-    fn lbu(&self, core: &mut Core) -> Result<(), Exception> { self.load(core, 1, false) }
-    fn lhu(&self, core: &mut Core) -> Result<(), Exception> { self.load(core, 2, false) }
+    fn lb(&self, core: &mut Core) -> Result<(), Exception> { self.load(core, 1, true, MMU::read_u8) }
+    fn lh(&self, core: &mut Core) -> Result<(), Exception> { self.load(core, 2, true, MMU::read_u16) }
+    fn lw(&self, core: &mut Core) -> Result<(), Exception> { self.load(core, 4, true, MMU::read_u32) }
+    fn lbu(&self, core: &mut Core) -> Result<(), Exception> { self.load(core, 1, false, MMU::read_u8) }
+    fn lhu(&self, core: &mut Core) -> Result<(), Exception> { self.load(core, 2, false, MMU::read_u16) }
 
-    fn store(&self, core: &mut Core, byte_size: u32) -> Result<(), Exception> {
+    fn store<T>(&self, core: &mut Core, byte_size: u32, storer: impl Fn(&mut MMU, u32, T) -> Result<(), Exception>, caster: impl Fn(u32) -> T) -> Result<(), Exception> {
         let addr = core.ireg.read(self.rs1()).wrapping_add(self.imm());
         let data = core.ireg.read(self.rs2());
+        storer(&mut core.memory, addr, caster(data))
+
+        /*
         (0..byte_size)
             .map(|index| data.truncate((index + 1) * 8 - 1, index * 8) as u8)
             .zip(0..)
-            .for_each(|(data, index)| core.memory.write(addr.wrapping_add(index), data));
+            .for_each(|(data, index)| storer(&mut core.memory, )core.memory.write_u8(addr.wrapping_add(index), data));
 
         Ok(())
+        */
     }
 
-    fn sb(&self, core: &mut Core) -> Result<(), Exception> { self.store(core, 1) }
-    fn sh(&self, core: &mut Core) -> Result<(), Exception> { self.store(core, 2) }
-    fn sw(&self, core: &mut Core) -> Result<(), Exception> { self.store(core, 4) }
+    fn sb(&self, core: &mut Core) -> Result<(), Exception> { self.store(core, 1, MMU::write_u8, |v| v as u8) }
+    fn sh(&self, core: &mut Core) -> Result<(), Exception> { self.store(core, 2, MMU::write_u16, |v| v as u16) }
+    fn sw(&self, core: &mut Core) -> Result<(), Exception> { self.store(core, 4, MMU::write_u32, |v| v) }
 
     fn rs1_imm_ops(&self, core: &mut Core, f: impl Fn(u32, u32) -> u32) -> Result<(), Exception> {
         let rs1_value = core.ireg.read(self.rs1());
@@ -434,6 +434,86 @@ impl Instruction {
         )
     }
 
+    fn lr_w(&self, core: &mut Core) -> Result<(), Exception> {
+        let addr = core.ireg.read(self.rs1());
+
+        core.memory.set_reservation(addr);
+        let data = core.memory.read_u32(addr)?;
+
+        core.ireg.write(self.rd(), data);
+
+        Ok(())
+    }
+
+    fn sc_w(&self, core: &mut Core) -> Result<(), Exception> {
+        let addr = core.ireg.read(self.rs1());
+        let data = core.ireg.read(self.rs2());
+
+        if core.memory.check_reservation(addr) {
+            core.memory.write_u32(addr, data)?;
+            core.ireg.write(self.rd(), 0);
+            core.memory.yield_reservation();
+            Ok(())
+        } else {
+            core.ireg.write(self.rd(), 1);
+            core.memory.yield_reservation();
+            Ok(())
+        }
+    }
+
+    fn amoswap_w(&self, core: &mut Core) -> Result<(), Exception> {
+        self.amo_operation(core, |_, b| b)
+    }
+
+    fn amoadd_w(&self, core: &mut Core) -> Result<(), Exception> {
+        self.amo_operation(core, |a, b| a.wrapping_add(b))
+    }
+
+    fn amoxor_w(&self, core: &mut Core) -> Result<(), Exception> {
+        self.amo_operation(core, |a, b| a ^ b)
+    }
+
+    fn amoand_w(&self, core: &mut Core) -> Result<(), Exception> {
+        self.amo_operation(core, |a, b| a & b)
+    }
+
+    fn amoor_w(&self, core: &mut Core) -> Result<(), Exception> {
+        self.amo_operation(core, |a, b| a | b)
+    }
+
+    fn amomin_w(&self, core: &mut Core) -> Result<(), Exception> {
+        self.amo_operation(core, |a, b| {
+            std::cmp::min(a as i32, b as i32) as u32
+        })
+    }
+
+    fn amomax_w(&self, core: &mut Core) -> Result<(), Exception> {
+        self.amo_operation(core, |a, b| {
+            std::cmp::max(a as i32, b as i32) as u32
+        })
+    }
+
+    fn amominu_w(&self, core: &mut Core) -> Result<(), Exception> {
+        self.amo_operation(core, std::cmp::min)
+    }
+
+    fn amomaxu_w(&self, core: &mut Core) -> Result<(), Exception> {
+        self.amo_operation(core, std::cmp::max)
+    }
+
+    fn amo_operation(&self, core: &mut Core, op: impl Fn(u32, u32) -> u32) -> Result<(), Exception> {
+        let addr = core.ireg.read(self.rs1());
+        let data = core.memory.read_u32(addr)?;
+        let rs2_value = core.ireg.read(self.rs2());
+
+        let stored_data = op(data, rs2_value);
+
+        core.memory.write_u32(addr, stored_data)?;
+        core.ireg.write(self.rd(), data);
+
+        Ok(())
+    }
+
     fn csr_manipulate(
         &self,
         core: &mut Core,
@@ -612,7 +692,7 @@ impl std::fmt::Display for EncodeType {
 }
 
 macro_rules! opcode_list {
-    ($({ $opcode: ident, $encode_type: ident, op: $op: literal $(, f3: $f3: literal)? $(, f7: $f7: literal)? $(, f12: $f12: literal)? $(, [ $upper: literal, $lower: literal ] : $expect : literal)* $(,)?}),+ $(,)?) => {
+    ($({ $opcode: ident, $encode_type: ident, op: $op: expr $(, f3: $f3: literal)? $(, f7: $f7: literal)? $(, f12: $f12: literal)? $(, [ $upper: literal, $lower: literal ] : $expect : literal)* $(,)?}),+ $(,)?) => {
         impl Instruction {
             fn new_impl(inst: u32) -> Result<Instruction, Exception> {
                 let opcode = inst.truncate(6, 0);
@@ -659,70 +739,120 @@ macro_rules! opcode_list {
     }
 }
 
+const LOAD: u32      = 0b0000011;
+const STORE: u32     = 0b0100011;
+const MADD: u32      = 0b1000011;
+const BRANCH: u32    = 0b1100011;
+
+const LOAD_FP: u32   = 0b0000111;
+const STORE_FP: u32  = 0b0100111;
+const MSUB: u32      = 0b1000111;
+const JALR: u32      = 0b1100111;
+
+const CUSTOM_0: u32  = 0b0001011;
+const CUSTOM_1: u32  = 0b0101011;
+const NMSUM: u32     = 0b1001011;
+// RESERVED            0b1101011
+
+const MISC_MEM: u32  = 0b0001111;
+const AMO: u32       = 0b0101111;
+const NMADD: u32     = 0b1001111;
+const JAL: u32       = 0b1101111;
+
+const OP_IMM: u32    = 0b0010011;
+const OP: u32        = 0b0110011;
+const OP_FP: u32     = 0b1010011;
+const SYSTEM: u32    = 0b1110011;
+
+const AUIPC: u32     = 0b0010111;
+const LUI: u32       = 0b0110111;
+// RESERVED            0b1010111
+// RESERVED            0b1110111
+
+const OP_IMM_32: u32 = 0b0011011;
+const OP_32: u32     = 0b0111011;
+const CUSTOM_2: u32  = 0b1011011;
+const CUSTOM_3: u32  = 0b1111011;
+
+
+
 opcode_list!(
     // RV32I standard isa
-    {     lui, UType, op: 0b0110111, },
-    {   auipc, UType, op: 0b0010111, },
-    {     jal, JType, op: 0b1101111, },
-    {    jalr, IType, op: 0b1100111, f3: 0b000, },
-    {     beq, BType, op: 0b1100011, f3: 0b000, },
-    {     bne, BType, op: 0b1100011, f3: 0b001, },
-    {     blt, BType, op: 0b1100011, f3: 0b100, },
-    {     bge, BType, op: 0b1100011, f3: 0b101, },
-    {    bltu, BType, op: 0b1100011, f3: 0b110, },
-    {    bgeu, BType, op: 0b1100011, f3: 0b111, },
-    {      lb, IType, op: 0b0000011, f3: 0b000, },
-    {      lh, IType, op: 0b0000011, f3: 0b001, },
-    {      lw, IType, op: 0b0000011, f3: 0b010, },
-    {     lbu, IType, op: 0b0000011, f3: 0b100, },
-    {     lhu, IType, op: 0b0000011, f3: 0b101, },
-    {      sb, SType, op: 0b0100011, f3: 0b000, },
-    {      sh, SType, op: 0b0100011, f3: 0b001, },
-    {      sw, SType, op: 0b0100011, f3: 0b010, },
-    {    addi, IType, op: 0b0010011, f3: 0b000, },
-    {    slti, IType, op: 0b0010011, f3: 0b010, },
-    {   sltiu, IType, op: 0b0010011, f3: 0b011, },
-    {    xori, IType, op: 0b0010011, f3: 0b100, },
-    {     ori, IType, op: 0b0010011, f3: 0b110, },
-    {    andi, IType, op: 0b0010011, f3: 0b111, },
-    {    slli, IType, op: 0b0010011, f3: 0b001, f7: 0b000_0000, },
-    {    srli, IType, op: 0b0010011, f3: 0b101, f7: 0b000_0000, },
-    {    srai, IType, op: 0b0010011, f3: 0b101, f7: 0b010_0000, },
-    {     add, RType, op: 0b0110011, f3: 0b000, f7: 0b000_0000, },
-    {     sub, RType, op: 0b0110011, f3: 0b000, f7: 0b010_0000, },
-    {     sll, RType, op: 0b0110011, f3: 0b001, f7: 0b000_0000, },
-    {     slt, RType, op: 0b0110011, f3: 0b010, f7: 0b000_0000, },
-    {    sltu, RType, op: 0b0110011, f3: 0b011, f7: 0b000_0000, },
-    {     xor, RType, op: 0b0110011, f3: 0b100, f7: 0b000_0000, },
-    {     srl, RType, op: 0b0110011, f3: 0b101, f7: 0b000_0000, },
-    {     sra, RType, op: 0b0110011, f3: 0b101, f7: 0b010_0000, },
-    {      or, RType, op: 0b0110011, f3: 0b110, f7: 0b000_0000, },
-    {     and, RType, op: 0b0110011, f3: 0b111, f7: 0b000_0000, },
-    {   fence, IType, op: 0b0001111, f3: 0b000, },
-    {   ecall, IType, op: 0b1110011, f12: 0b0000_0000_0000, [19, 7]: 0, },
-    {  ebreak, IType, op: 0b1110011, f12: 0b0000_0000_0001, [19, 7]: 0, },
+    {     lui, UType, op: LUI, },
+    {   auipc, UType, op: AUIPC, },
+    {     jal, JType, op: JAL, },
+    {    jalr, IType, op: JALR,     f3: 0b000, },
+    {     beq, BType, op: BRANCH,   f3: 0b000, },
+    {     bne, BType, op: BRANCH,   f3: 0b001, },
+    {     blt, BType, op: BRANCH,   f3: 0b100, },
+    {     bge, BType, op: BRANCH,   f3: 0b101, },
+    {    bltu, BType, op: BRANCH,   f3: 0b110, },
+    {    bgeu, BType, op: BRANCH,   f3: 0b111, },
+    {      lb, IType, op: LOAD,     f3: 0b000, },
+    {      lh, IType, op: LOAD,     f3: 0b001, },
+    {      lw, IType, op: LOAD,     f3: 0b010, },
+    {     lbu, IType, op: LOAD,     f3: 0b100, },
+    {     lhu, IType, op: LOAD,     f3: 0b101, },
+    {      sb, SType, op: STORE,    f3: 0b000, },
+    {      sh, SType, op: STORE,    f3: 0b001, },
+    {      sw, SType, op: STORE,    f3: 0b010, },
+    {    addi, IType, op: OP_IMM,   f3: 0b000, },
+    {    slti, IType, op: OP_IMM,   f3: 0b010, },
+    {   sltiu, IType, op: OP_IMM,   f3: 0b011, },
+    {    xori, IType, op: OP_IMM,   f3: 0b100, },
+    {     ori, IType, op: OP_IMM,   f3: 0b110, },
+    {    andi, IType, op: OP_IMM,   f3: 0b111, },
+    {    slli, IType, op: OP_IMM,   f3: 0b001, f7: 0b000_0000, },
+    {    srli, IType, op: OP_IMM,   f3: 0b101, f7: 0b000_0000, },
+    {    srai, IType, op: OP_IMM,   f3: 0b101, f7: 0b010_0000, },
+    {     add, RType, op: OP,       f3: 0b000, f7: 0b000_0000, },
+    {     sub, RType, op: OP,       f3: 0b000, f7: 0b010_0000, },
+    {     sll, RType, op: OP,       f3: 0b001, f7: 0b000_0000, },
+    {     slt, RType, op: OP,       f3: 0b010, f7: 0b000_0000, },
+    {    sltu, RType, op: OP,       f3: 0b011, f7: 0b000_0000, },
+    {     xor, RType, op: OP,       f3: 0b100, f7: 0b000_0000, },
+    {     srl, RType, op: OP,       f3: 0b101, f7: 0b000_0000, },
+    {     sra, RType, op: OP,       f3: 0b101, f7: 0b010_0000, },
+    {      or, RType, op: OP,       f3: 0b110, f7: 0b000_0000, },
+    {     and, RType, op: OP,       f3: 0b111, f7: 0b000_0000, },
+    {   fence, IType, op: MISC_MEM, f3: 0b000, },
+    {   ecall, IType, op: SYSTEM,   f12: 0b0000_0000_0000, [19, 7]: 0, },
+    {  ebreak, IType, op: SYSTEM,   f12: 0b0000_0000_0001, [19, 7]: 0, },
 
     // privileged instruction
-    {    mret, IType, op: 0b1110011, f3: 0b000, f7: 0b0011000, [11, 7]: 0b00000, [19, 15]: 0b00000, [24, 20]: 0b00010 },
+    {    mret, IType, op: SYSTEM,   f3: 0b000, f7: 0b0011000, [11, 7]: 0b00000, [19, 15]: 0b00000, [24, 20]: 0b00010 },
 
     // Zcsr extension isa
-    {   csrrw, IType, op: 0b1110011, f3: 0b001, },
-    {   csrrs, IType, op: 0b1110011, f3: 0b010, },
-    {   csrrc, IType, op: 0b1110011, f3: 0b011, },
-    {  csrrwi, IType, op: 0b1110011, f3: 0b101, },
-    {  csrrsi, IType, op: 0b1110011, f3: 0b110, },
-    {  csrrci, IType, op: 0b1110011, f3: 0b111, },
+    {   csrrw, IType, op: SYSTEM,   f3: 0b001, },
+    {   csrrs, IType, op: SYSTEM,   f3: 0b010, },
+    {   csrrc, IType, op: SYSTEM,   f3: 0b011, },
+    {  csrrwi, IType, op: SYSTEM,   f3: 0b101, },
+    {  csrrsi, IType, op: SYSTEM,   f3: 0b110, },
+    {  csrrci, IType, op: SYSTEM,   f3: 0b111, },
 
     // Zfence_i extension isa
-    { fence_i, IType, op: 0b0001111, f3: 0b001, },
+    { fence_i, IType, op: MISC_MEM, f3: 0b001, },
 
     // M extension isa
-    {     mul, RType, op: 0b0110011, f3: 0b000, f7: 0b000_0001 },
-    {    mulh, RType, op: 0b0110011, f3: 0b001, f7: 0b000_0001 },
-    {  mulhsu, RType, op: 0b0110011, f3: 0b010, f7: 0b000_0001 },
-    {   mulhu, RType, op: 0b0110011, f3: 0b011, f7: 0b000_0001 },
-    {     div, RType, op: 0b0110011, f3: 0b100, f7: 0b000_0001 },
-    {    divu, RType, op: 0b0110011, f3: 0b101, f7: 0b000_0001 },
-    {     rem, RType, op: 0b0110011, f3: 0b110, f7: 0b000_0001 },
-    {    remu, RType, op: 0b0110011, f3: 0b111, f7: 0b000_0001 },
+    {     mul, RType, op: OP,       f3: 0b000, f7: 0b000_0001 },
+    {    mulh, RType, op: OP,       f3: 0b001, f7: 0b000_0001 },
+    {  mulhsu, RType, op: OP,       f3: 0b010, f7: 0b000_0001 },
+    {   mulhu, RType, op: OP,       f3: 0b011, f7: 0b000_0001 },
+    {     div, RType, op: OP,       f3: 0b100, f7: 0b000_0001 },
+    {    divu, RType, op: OP,       f3: 0b101, f7: 0b000_0001 },
+    {     rem, RType, op: OP,       f3: 0b110, f7: 0b000_0001 },
+    {    remu, RType, op: OP,       f3: 0b111, f7: 0b000_0001 },
+
+    // A extension isa
+    {      lr_w, RType, op: AMO,      f3: 0b010, [31, 27]: 0b00010, [24, 20]: 0b00000 },
+    {      sc_w, RType, op: AMO,      f3: 0b010, [31, 27]: 0b00011 },
+    { amoswap_w, RType, op: AMO,      f3: 0b010, [31, 27]: 0b00001 },
+    {  amoadd_w, RType, op: AMO,      f3: 0b010, [31, 27]: 0b00000 },
+    {  amoxor_w, RType, op: AMO,      f3: 0b010, [31, 27]: 0b00100 },
+    {  amoand_w, RType, op: AMO,      f3: 0b010, [31, 27]: 0b01100 },
+    {   amoor_w, RType, op: AMO,      f3: 0b010, [31, 27]: 0b01000 },
+    {  amomin_w, RType, op: AMO,      f3: 0b010, [31, 27]: 0b10000 },
+    {  amomax_w, RType, op: AMO,      f3: 0b010, [31, 27]: 0b10100 },
+    { amominu_w, RType, op: AMO,      f3: 0b010, [31, 27]: 0b11000 },
+    { amomaxu_w, RType, op: AMO,      f3: 0b010, [31, 27]: 0b11100 }
 );

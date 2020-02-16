@@ -62,12 +62,8 @@ impl Core {
         Ok(())
     }
 
-    fn fetch(&mut self) -> Result<u32, Exception> {
-        let bytes = (0..4).map(|i| self.pc + i)
-            .map(|addr| self.memory.read(addr) as u32)
-            .collect::<Vec<u32>>();
-
-        Ok(Bitwise::concat(&bytes, &[8; 4]))
+    fn fetch(&self) -> Result<u32, Exception> {
+        self.memory.read_u32(self.pc)
     }
 
     fn raise_exception(&mut self, exp: Exception) {
