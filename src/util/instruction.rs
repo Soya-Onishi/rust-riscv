@@ -664,7 +664,7 @@ opcode_list!(
     {     lui, UType, op: 0b0110111, },
     {   auipc, UType, op: 0b0010111, },
     {     jal, JType, op: 0b1101111, },
-    {    jalr, IType, op: 0b1101111, f3: 0b000, },
+    {    jalr, IType, op: 0b1100111, f3: 0b000, },
     {     beq, BType, op: 0b1100011, f3: 0b000, },
     {     bne, BType, op: 0b1100011, f3: 0b001, },
     {     blt, BType, op: 0b1100011, f3: 0b100, },
@@ -676,9 +676,9 @@ opcode_list!(
     {      lw, IType, op: 0b0000011, f3: 0b010, },
     {     lbu, IType, op: 0b0000011, f3: 0b100, },
     {     lhu, IType, op: 0b0000011, f3: 0b101, },
-    {      sb, IType, op: 0b0100011, f3: 0b000, },
-    {      sh, IType, op: 0b0100011, f3: 0b001, },
-    {      sw, IType, op: 0b0100011, f3: 0b010, },
+    {      sb, SType, op: 0b0100011, f3: 0b000, },
+    {      sh, SType, op: 0b0100011, f3: 0b001, },
+    {      sw, SType, op: 0b0100011, f3: 0b010, },
     {    addi, IType, op: 0b0010011, f3: 0b000, },
     {    slti, IType, op: 0b0010011, f3: 0b010, },
     {   sltiu, IType, op: 0b0010011, f3: 0b011, },
@@ -699,10 +699,11 @@ opcode_list!(
     {      or, RType, op: 0b0110011, f3: 0b110, f7: 0b000_0000, },
     {     and, RType, op: 0b0110011, f3: 0b111, f7: 0b000_0000, },
     {   fence, IType, op: 0b0001111, f3: 0b000, },
-    { fence_i, IType, op: 0b0001111, f3: 0b001, },
     {   ecall, IType, op: 0b1110011, f12: 0b0000_0000_0000, [19, 7]: 0, },
     {  ebreak, IType, op: 0b1110011, f12: 0b0000_0000_0001, [19, 7]: 0, },
-    {    mret, IType, op: 0b1110011, f12: 0b0000_0000_0001, [19, 7]: 0, },
+
+    // privileged instruction
+    {    mret, IType, op: 0b1110011, f3: 0b000, f7: 0b0011000, [11, 7]: 0b00000, [19, 15]: 0b00000, [24, 20]: 0b00010 },
 
     // Zcsr extension isa
     {   csrrw, IType, op: 0b1110011, f3: 0b001, },
@@ -711,6 +712,9 @@ opcode_list!(
     {  csrrwi, IType, op: 0b1110011, f3: 0b101, },
     {  csrrsi, IType, op: 0b1110011, f3: 0b110, },
     {  csrrci, IType, op: 0b1110011, f3: 0b111, },
+
+    // Zfence_i extension isa
+    { fence_i, IType, op: 0b0001111, f3: 0b001, },
 
     // M extension isa
     {     mul, RType, op: 0b0110011, f3: 0b000, f7: 0b000_0001 },
